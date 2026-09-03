@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] The project wiki's backing git repository is identified and migrated via the same `GitTransport` mirror clone/push path used for regular repos
-- [ ] Destination wiki's full page history matches source after migration
-- [ ] Migrated wiki is tracked in state; re-running skips it if already migrated
-- [ ] A dry run lists the wiki that will be migrated in the HTML report
-- [ ] Covered by tests against the fake `AdoClient`/`GitTransport`
+- [x] The project wiki's backing git repository is identified and migrated via the same `GitTransport` mirror clone/push path used for regular repos
+- [x] Destination wiki's full page history matches source after migration
+- [x] Migrated wiki is tracked in state; re-running skips it if already migrated
+- [x] A dry run lists the wiki that will be migrated in the HTML report
+- [x] Covered by tests against the fake `AdoClient`/`GitTransport`

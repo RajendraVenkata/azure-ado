@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Source area path tree is read and recreated on the destination, preserving hierarchy
-- [ ] Source iteration path tree (including start/end dates where present) is read and recreated on the destination, preserving hierarchy
-- [ ] Paths already present on the destination (e.g. the project's default tree) are handled without creating duplicates or erroring
-- [ ] Migrated paths are tracked in state; re-running skips paths already migrated
-- [ ] A dry run lists the area/iteration paths that will be created in the HTML report
-- [ ] Covered by tests against the fake `AdoClient` — no real org involved
+- [x] Source area path tree is read and recreated on the destination, preserving hierarchy
+- [x] Source iteration path tree (including start/end dates where present) is read and recreated on the destination, preserving hierarchy
+- [x] Paths already present on the destination (e.g. the project's default tree) are handled without creating duplicates or erroring
+- [x] Migrated paths are tracked in state; re-running skips paths already migrated
+- [x] A dry run lists the area/iteration paths that will be created in the HTML report
+- [x] Covered by tests against the fake `AdoClient` — no real org involved

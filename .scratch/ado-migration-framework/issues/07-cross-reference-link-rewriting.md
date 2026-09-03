@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] After work items and repos are migrated, links between two migrated work items are rewritten to reference the destination work item IDs, using the ID-mapping table in state
-- [ ] PR references within migrated work items are rewritten to reference the destination repo/PR, using the ID-mapping table
-- [ ] A link whose target is out of migration scope (a different, non-migrated project, or a report-only artifact type such as a classic release pipeline or dashboard) is left pointing at the source org rather than dropped or broken
-- [ ] Every such preserved external link is itemized in the HTML report under "external references retained"
-- [ ] Re-running link rewriting on already-rewritten items is a no-op (idempotent)
-- [ ] Covered by tests against the fake `AdoClient` — no real org involved
+- [x] After work items and repos are migrated, links between two migrated work items are rewritten to reference the destination work item IDs, using the ID-mapping table in state
+- [x] PR references within migrated work items are rewritten to reference the destination repo/PR, using the ID-mapping table
+- [x] A link whose target is out of migration scope (a different, non-migrated project, or a report-only artifact type such as a classic release pipeline or dashboard) is left pointing at the source org rather than dropped or broken
+- [x] Every such preserved external link is itemized in the HTML report under "external references retained"
+- [x] Re-running link rewriting on already-rewritten items is a no-op (idempotent)
+- [x] Covered by tests against the fake `AdoClient` — no real org involved

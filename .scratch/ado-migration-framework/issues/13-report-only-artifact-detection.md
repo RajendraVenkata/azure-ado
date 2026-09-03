@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Classic release pipeline definitions present in the source project are enumerated and listed in the report; none are created on the destination
-- [ ] Dashboards and their widgets present in the source project are enumerated and listed in the report; none are created on the destination
-- [ ] Artifact feeds owned/used by the source project are enumerated and listed in the report; no package content is copied
-- [ ] Marketplace extensions actually used by the source project (e.g. via referenced build tasks) are enumerated and listed in the report; none are installed on the destination org
-- [ ] This detection runs identically in dry-run and real-run modes (it never mutates the destination either way)
-- [ ] Covered by tests against the fake `AdoClient`
+- [x] Classic release pipeline definitions present in the source project are enumerated and listed in the report; none are created on the destination
+- [x] Dashboards and their widgets present in the source project are enumerated and listed in the report; none are created on the destination
+- [x] Artifact feeds owned/used by the source project are enumerated and listed in the report; no package content is copied
+- [x] Marketplace extensions actually used by the source project (e.g. via referenced build tasks) are enumerated and listed in the report; none are installed on the destination org
+- [x] This detection runs identically in dry-run and real-run modes (it never mutates the destination either way)
+- [x] Covered by tests against the fake `AdoClient`

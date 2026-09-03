@@ -7,18 +7,27 @@ class StateStore:
     def __init__(self, path: str):
         self._path = path
         self._items: dict[str, dict[str, dict]] = {}
+        self._failures: dict[str, list[str]] = {}
 
     def load(self) -> None:
         if not os.path.exists(self._path):
             self._items = {}
+            self._failures = {}
             return
 
         with open(self._path) as f:
-            self._items = json.load(f)
+            data = json.load(f)
+        self._items = data.get("items", {})
+        self._failures = data.get("failures", {})
 
     def save(self) -> None:
         with open(self._path, "w") as f:
-            json.dump(self._items, f, indent=2, sort_keys=True)
+            json.dump(
+                {"items": self._items, "failures": self._failures},
+                f,
+                indent=2,
+                sort_keys=True,
+            )
 
     def mark_complete(
         self, artifact_type: str, source_id: str, destination_id: str
@@ -37,3 +46,15 @@ class StateStore:
     ) -> Optional[str]:
         entry = self._items.get(artifact_type, {}).get(source_id)
         return entry["destination_id"] if entry else None
+
+    def list_destination_ids(self, artifact_type: str) -> dict[str, str]:
+        return {
+            source_id: entry["destination_id"]
+            for source_id, entry in self._items.get(artifact_type, {}).items()
+        }
+
+    def record_failure(self, artifact_type: str, error: str) -> None:
+        self._failures.setdefault(artifact_type, []).append(error)
+
+    def get_failures(self, artifact_type: str) -> list[str]:
+        return list(self._failures.get(artifact_type, []))

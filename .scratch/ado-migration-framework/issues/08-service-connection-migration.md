@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Source service connections are read and recreated on the destination as far as the API allows
-- [ ] Connection types/fields that can't be faithfully recreated (e.g. secrets that can't be read back via API) are handled with a clear, reported gap rather than a silent failure or fabricated value
-- [ ] The source-ID → destination-ID mapping table in state is populated for each migrated service connection
-- [ ] Migrated connections are tracked in state; re-running skips connections already migrated
-- [ ] A dry run lists the service connections that will be migrated in the HTML report
-- [ ] Covered by tests against the fake `AdoClient`
+- [x] Source service connections are read and recreated on the destination as far as the API allows
+- [x] Connection types/fields that can't be faithfully recreated (e.g. secrets that can't be read back via API) are handled with a clear, reported gap rather than a silent failure or fabricated value
+- [x] The source-ID → destination-ID mapping table in state is populated for each migrated service connection
+- [x] Migrated connections are tracked in state; re-running skips connections already migrated
+- [x] A dry run lists the service connections that will be migrated in the HTML report
+- [x] Covered by tests against the fake `AdoClient`
