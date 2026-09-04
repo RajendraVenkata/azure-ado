@@ -5,6 +5,7 @@ description = "Azure DevOps org-to-org migration framework"
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
+    "azure-devops>=7.1.0b4",
 ]
 
 [project.optional-dependencies]
@@ -14,6 +15,7 @@ dev = [
 
 [project.scripts]
 migrate = "ado_migrate.cli:main"
+seed-ado = "ado_migrate.seed_ado:main"
 
 [build-system]
 requires = ["setuptools>=68"]
