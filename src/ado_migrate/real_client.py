@@ -198,7 +198,11 @@ class RealAdoClient(AdoClient):
 
     def _list_work_item_ids(self, project: str) -> list[int]:
         # Azure DevOps caps WIQL results at 20000 rows per query (VS402337),
-        # so projects above that size must be paged by System.Id.
+        # so projects above that size must be paged by System.Id. The
+        # [System.TeamProject] = @project clause is required here even
+        # though team_context is also set below — team_context alone does
+        # not reliably scope a custom WIQL query to one project, and
+        # without it this silently queries the whole organization.
         page_size = 19999
         ids: list[int] = []
         last_id = 0
@@ -208,7 +212,7 @@ class RealAdoClient(AdoClient):
                 Wiql(
                     query=(
                         "SELECT [System.Id] FROM WorkItems "
-                        f"WHERE [System.Id] > {last_id} "
+                        f"WHERE [System.TeamProject] = @project AND [System.Id] > {last_id} "
                         "ORDER BY [System.Id] ASC"
                     )
                 ),
