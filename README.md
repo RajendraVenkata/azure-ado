@@ -161,5 +161,9 @@ pytest
 
 ## Known limitations
 
-- v1 scope excludes pipelines, wikis, test plans, service connections, and security groups migration logic beyond what's flagged in the report; see `docs/superpowers/specs/2026-09-03-ado-migration-framework.md` for the full scope discussion.
+- `real_client.py` and `real_git_transport.py` make real calls to Azure DevOps and are deliberately excluded from the automated test suite (per this repo's convention — see their module docstrings); verify changes to them manually against a real org, ideally one seeded via `seed-ado` rather than a production project.
+- `pipelines` migration copies the YAML path and repo reference, but cannot detect which service connections a pipeline's YAML references (that would require parsing the YAML itself) — `service_connection_ids` always comes back empty for real pipelines, so connections must be re-linked manually in the destination pipeline.
+- `queries` migration does not pre-create missing destination folders; a query nested under a folder that doesn't already exist in the destination project will fail (non-fatally — the run continues, but that query won't be migrated).
+- `security_groups` migration copies only direct user members (not nested-group members) of custom project groups, and skips Azure DevOps' built-in default groups (Project Administrators, Contributors, Readers, etc.), which already exist in every project.
+- `service_connections` migration never carries over real secrets (Azure DevOps never returns them via the API) — the destination connection is created with the same type/scheme but empty credentials, flagged in the report as needing manual re-entry.
 - `real_client.py` and `real_git_transport.py` make real calls to Azure DevOps and are deliberately excluded from the automated test suite (per this repo's convention — see their module docstrings); verify changes to them manually against a real org.

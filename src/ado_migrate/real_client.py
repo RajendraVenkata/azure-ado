@@ -17,16 +17,54 @@ from urllib.parse import urlparse
 import requests
 from azure.devops.connection import Connection
 from azure.devops.exceptions import AzureDevOpsClientRequestError
+from azure.devops.v7_1.dashboard.models import TeamContext as DashboardTeamContext
 from azure.devops.v7_1.git.models import GitRepositoryCreateOptions
+from azure.devops.v7_1.graph.models import (
+    GraphSubjectLookup,
+    GraphSubjectLookupKey,
+    GraphSubjectQuery,
+)
+from azure.devops.v7_1.service_endpoint.models import (
+    EndpointAuthorization,
+    ProjectReference,
+    ServiceEndpoint,
+    ServiceEndpointProjectReference,
+)
+from azure.devops.v7_1.test_plan.models import (
+    SuiteTestCaseCreateUpdateParameters,
+    TestPlanCreateParams,
+    TestSuiteCreateParams,
+    TestSuiteReference,
+)
+from azure.devops.v7_1.test_plan.models import WorkItem as TestPlanWorkItemRef
+from azure.devops.v7_1.wiki.models import WikiCreateParametersV2
 from azure.devops.v7_1.work_item_tracking.models import (
     JsonPatchOperation,
+    QueryHierarchyItem,
     TeamContext,
     Wiql,
     WorkItemClassificationNode,
 )
 from msrest.authentication import BasicAuthentication
 
-from ado_migrate.client import AdoClient, Attachment, IterationPath, Link, Repo, WorkItem
+from ado_migrate.client import (
+    AdoClient,
+    ArtifactFeed,
+    Attachment,
+    Dashboard,
+    Extension,
+    IterationPath,
+    Link,
+    Pipeline,
+    Query,
+    ReleasePipeline,
+    Repo,
+    SecurityGroup,
+    ServiceConnection,
+    TestPlan,
+    TestSuite,
+    WorkItem,
+)
 from ado_migrate.mutation import TransientError
 
 _FIELD_REFERENCE_NAMES = {
@@ -45,8 +83,34 @@ _WIT_CLIENT_PATH = (
 _GIT_CLIENT_PATH = "azure.devops.v7_1.git.git_client.GitClient"
 _CORE_CLIENT_PATH = "azure.devops.v7_1.core.core_client.CoreClient"
 _GRAPH_CLIENT_PATH = "azure.devops.v7_1.graph.graph_client.GraphClient"
+_WIKI_CLIENT_PATH = "azure.devops.v7_1.wiki.wiki_client.WikiClient"
+_SERVICE_ENDPOINT_CLIENT_PATH = (
+    "azure.devops.v7_1.service_endpoint.service_endpoint_client.ServiceEndpointClient"
+)
+_TEST_PLAN_CLIENT_PATH = "azure.devops.v7_1.test_plan.test_plan_client.TestPlanClient"
+_RELEASE_CLIENT_PATH = "azure.devops.v7_1.release.release_client.ReleaseClient"
+_DASHBOARD_CLIENT_PATH = "azure.devops.v7_1.dashboard.dashboard_client.DashboardClient"
+_FEED_CLIENT_PATH = "azure.devops.v7_1.feed.feed_client.FeedClient"
+_EXTENSION_MANAGEMENT_CLIENT_PATH = (
+    "azure.devops.v7_1.extension_management.extension_management_client."
+    "ExtensionManagementClient"
+)
 _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _STATUS_CODE_IN_MESSAGE = re.compile(r"returned a (\d+) status code")
+
+# Built-in groups every Azure DevOps project already has by default; these
+# are never migrated since they already exist in the destination project.
+_DEFAULT_SECURITY_GROUP_NAMES = {
+    "Project Administrators",
+    "Contributors",
+    "Readers",
+    "Build Administrators",
+    "Release Administrators",
+    "Endpoint Administrators",
+    "Endpoint Creators",
+    "Project Valid Users",
+    "Project-Scoped Users",
+}
 
 
 class RealAdoClient(AdoClient):
@@ -59,8 +123,19 @@ class RealAdoClient(AdoClient):
         self._git_client = connection.get_client(_GIT_CLIENT_PATH)
         self._core_client = connection.get_client(_CORE_CLIENT_PATH)
         self._graph_client = connection.get_client(_GRAPH_CLIENT_PATH)
+        self._wiki_client = connection.get_client(_WIKI_CLIENT_PATH)
+        self._service_endpoint_client = connection.get_client(_SERVICE_ENDPOINT_CLIENT_PATH)
+        self._test_plan_client = connection.get_client(_TEST_PLAN_CLIENT_PATH)
+        self._release_client = connection.get_client(_RELEASE_CLIENT_PATH)
+        self._dashboard_client = connection.get_client(_DASHBOARD_CLIENT_PATH)
+        self._feed_client = connection.get_client(_FEED_CLIENT_PATH)
+        self._extension_management_client = connection.get_client(
+            _EXTENSION_MANAGEMENT_CLIENT_PATH
+        )
+        self._pat = pat
         self._organization_url = organization_url.rstrip("/")
         self._project_id_cache: dict[str, str] = {}
+        self._test_plan_root_suite_cache: dict[str, str] = {}
 
     def list_area_paths(self, project: str) -> list[str]:
         root = self._call(
@@ -326,6 +401,436 @@ class RealAdoClient(AdoClient):
 
         return identities
 
+    def list_wikis(self, project: str) -> list[Repo]:
+        wikis = self._call(self._wiki_client.get_all_wikis, project=project)
+        return [Repo(id=w.id, name=w.name, clone_url=w.remote_url) for w in (wikis or [])]
+
+    def create_wiki(self, project: str, name: str) -> Optional[Repo]:
+        def do_create() -> Repo:
+            project_id = self._get_project_id(project)
+            # A code wiki is backed by its own git repo; create that repo
+            # first so the caller's subsequent push_mirror() has somewhere
+            # to push the mirrored wiki content.
+            repo = self._call(
+                self._git_client.create_repository,
+                GitRepositoryCreateOptions(name=name),
+                project=project,
+            )
+            wiki = self._call(
+                self._wiki_client.create_wiki,
+                WikiCreateParametersV2(
+                    name=name,
+                    project_id=project_id,
+                    repository_id=repo.id,
+                    type="codeWiki",
+                    mapped_path="/",
+                ),
+                project=project,
+            )
+            return Repo(id=wiki.id, name=wiki.name, clone_url=wiki.remote_url)
+
+        return self._mutate(f"create wiki '{name}' in {project}", do_create)
+
+    def list_service_connections(self, project: str) -> list[ServiceConnection]:
+        endpoints = self._call(
+            self._service_endpoint_client.get_service_endpoints, project, include_details=True
+        )
+        result = []
+        for endpoint in endpoints or []:
+            auth = endpoint.authorization
+            scheme = (auth.scheme if auth else None) or "None"
+            # Azure DevOps never returns real secret values on read (they
+            # come back redacted or omitted entirely), so any endpoint with
+            # a non-"None" auth scheme is conservatively flagged as
+            # secret-bearing and reported as needing manual re-entry.
+            has_secret = scheme != "None"
+            result.append(
+                ServiceConnection(
+                    id=endpoint.id,
+                    name=endpoint.name,
+                    connection_type=endpoint.type,
+                    config={
+                        "scheme": scheme,
+                        "parameters": dict(auth.parameters or {}) if auth else {},
+                        "url": endpoint.url,
+                    },
+                    has_secret=has_secret,
+                )
+            )
+        return result
+
+    def create_service_connection(
+        self,
+        project: str,
+        name: str,
+        connection_type: str,
+        config: dict[str, Any],
+        has_secret: bool = False,
+    ) -> Optional[ServiceConnection]:
+        def do_create() -> ServiceConnection:
+            project_id = self._get_project_id(project)
+            scheme = config.get("scheme", "None")
+            # Secret parameter values never round-trip through the read API
+            # (see list_service_connections), so a secret-bearing endpoint
+            # is created with empty credentials and must be re-entered
+            # manually afterward — the report already flags this.
+            parameters = {} if has_secret else dict(config.get("parameters", {}))
+            endpoint = ServiceEndpoint(
+                name=name,
+                type=connection_type,
+                url=config.get("url"),
+                authorization=EndpointAuthorization(scheme=scheme, parameters=parameters),
+                service_endpoint_project_references=[
+                    ServiceEndpointProjectReference(
+                        name=name,
+                        project_reference=ProjectReference(id=project_id, name=project),
+                    )
+                ],
+            )
+            created = self._call(
+                self._service_endpoint_client.create_service_endpoint, endpoint
+            )
+            return ServiceConnection(
+                id=created.id,
+                name=created.name,
+                connection_type=created.type,
+                config=dict(config),
+                has_secret=has_secret,
+            )
+
+        return self._mutate(
+            f"create service connection '{name}' in {project}", do_create
+        )
+
+    def list_queries(self, project: str) -> list[Query]:
+        roots = self._call(self._wit_client.get_queries, project, expand="all", depth=2)
+        queries: list[Query] = []
+        for root in roots or []:
+            self._collect_queries(project, root, queries)
+        return queries
+
+    def _collect_queries(self, project: str, item, queries: list[Query]) -> None:
+        if not item.is_folder:
+            path = item.path or item.name
+            folder_path = path.rsplit("/", 1)[0] if "/" in path else ""
+            queries.append(
+                Query(id=item.id, name=item.name, folder_path=folder_path, wiql=item.wiql or "")
+            )
+            return
+
+        children = item.children
+        if not children and item.has_children:
+            # get_queries()'s depth limit didn't expand this folder; fetch
+            # it directly.
+            expanded = self._call(
+                self._wit_client.get_query, project, item.path, expand="all", depth=2
+            )
+            children = expanded.children
+
+        for child in children or []:
+            self._collect_queries(project, child, queries)
+
+    def create_query(
+        self, project: str, name: str, folder_path: str, wiql: str
+    ) -> Optional[Query]:
+        def do_create() -> Query:
+            # Nested folders are not pre-created here; the destination
+            # folder_path must already exist (e.g. a prior sibling query in
+            # the same folder already created it, or it's a default root
+            # like "Shared Queries"). A missing intermediate folder makes
+            # this call fail, which is reported like any other item failure.
+            created = self._call(
+                self._wit_client.create_query,
+                QueryHierarchyItem(name=name, wiql=wiql, is_folder=False),
+                project,
+                folder_path or "Shared Queries",
+            )
+            return Query(id=created.id, name=created.name, folder_path=folder_path, wiql=wiql)
+
+        return self._mutate(f"create query '{name}' in {project}", do_create)
+
+    def list_pipelines(self, project: str) -> list[Pipeline]:
+        listing = self._raw_request(
+            "GET", f"{self._organization_url}/{project}/_apis/pipelines", {"api-version": "7.1"}
+        )
+        pipelines = []
+        for summary in (listing or {}).get("value", []):
+            detail = self._raw_request(
+                "GET",
+                f"{self._organization_url}/{project}/_apis/pipelines/{summary['id']}",
+                {"api-version": "7.1"},
+            )
+            configuration = detail.get("configuration") or {}
+            repository = configuration.get("repository") or {}
+            pipelines.append(
+                Pipeline(
+                    id=str(detail["id"]),
+                    name=detail["name"],
+                    yaml_path=configuration.get("path", ""),
+                    repo_id=repository.get("id", ""),
+                    # Service connections referenced inside a pipeline's
+                    # YAML (task inputs, resources) aren't enumerable via
+                    # this API without parsing the YAML file itself.
+                    service_connection_ids=[],
+                )
+            )
+        return pipelines
+
+    def create_pipeline(
+        self,
+        project: str,
+        name: str,
+        yaml_path: str,
+        repo_id: str,
+        service_connection_ids: list[str],
+    ) -> Optional[Pipeline]:
+        def do_create() -> Pipeline:
+            body = {
+                "name": name,
+                "configuration": {
+                    "type": "yaml",
+                    "path": yaml_path,
+                    "repository": {"id": repo_id, "type": "azureReposGit"},
+                },
+            }
+            created = self._raw_request(
+                "POST",
+                f"{self._organization_url}/{project}/_apis/pipelines",
+                {"api-version": "7.1"},
+                json_body=body,
+            )
+            return Pipeline(
+                id=str(created["id"]),
+                name=created["name"],
+                yaml_path=yaml_path,
+                repo_id=repo_id,
+                service_connection_ids=list(service_connection_ids),
+            )
+
+        return self._mutate(f"create pipeline '{name}' in {project}", do_create)
+
+    def list_test_plans(self, project: str) -> list[TestPlan]:
+        plans = self._call(self._test_plan_client.get_test_plans, project) or []
+        result = []
+        for plan in plans:
+            raw_suites = (
+                self._call(self._test_plan_client.get_test_suites_for_plan, project, plan.id)
+                or []
+            )
+            suites = []
+            for suite in raw_suites:
+                if suite.parent_suite is None:
+                    # The plan's auto-created root suite; recreated
+                    # automatically when the destination plan is created.
+                    continue
+                entries = (
+                    self._call(self._test_plan_client.get_suite_entries, project, suite.id)
+                    or []
+                )
+                test_case_ids = [
+                    str(entry.id)
+                    for entry in entries
+                    if (entry.suite_entry_type or "").lower() == "testcase"
+                ]
+                suites.append(
+                    TestSuite(
+                        id=str(suite.id),
+                        name=suite.name,
+                        parent_suite_id=(
+                            str(suite.parent_suite.id) if suite.parent_suite.id else None
+                        ),
+                        test_case_ids=test_case_ids,
+                        configuration_names=[
+                            c.name for c in (suite.default_configurations or []) if c.name
+                        ],
+                    )
+                )
+            result.append(TestPlan(id=str(plan.id), name=plan.name, suites=suites))
+        return result
+
+    def create_test_plan(self, project: str, name: str) -> Optional[TestPlan]:
+        def do_create() -> TestPlan:
+            created = self._call(
+                self._test_plan_client.create_test_plan,
+                TestPlanCreateParams(name=name),
+                project,
+            )
+            return TestPlan(id=str(created.id), name=created.name, suites=[])
+
+        return self._mutate(f"create test plan '{name}' in {project}", do_create)
+
+    def create_test_suite(
+        self,
+        project: str,
+        plan_id: str,
+        name: str,
+        parent_suite_id: Optional[str],
+        test_case_ids: list[str],
+        configuration_names: list[str],
+    ) -> Optional[TestSuite]:
+        def do_create() -> TestSuite:
+            parent_id = parent_suite_id or self._get_test_plan_root_suite_id(project, plan_id)
+            created = self._call(
+                self._test_plan_client.create_test_suite,
+                TestSuiteCreateParams(
+                    name=name,
+                    parent_suite=TestSuiteReference(id=int(parent_id)),
+                    suite_type="staticTestSuite",
+                ),
+                project,
+                plan_id,
+            )
+            if test_case_ids:
+                self._call(
+                    self._test_plan_client.add_test_cases_to_suite,
+                    [
+                        SuiteTestCaseCreateUpdateParameters(
+                            work_item=TestPlanWorkItemRef(id=int(tc_id))
+                        )
+                        for tc_id in test_case_ids
+                    ],
+                    project,
+                    plan_id,
+                    created.id,
+                )
+            return TestSuite(
+                id=str(created.id),
+                name=created.name,
+                parent_suite_id=parent_suite_id,
+                test_case_ids=list(test_case_ids),
+                configuration_names=list(configuration_names),
+            )
+
+        return self._mutate(f"create test suite '{name}' in {project}", do_create)
+
+    def _get_test_plan_root_suite_id(self, project: str, plan_id: str) -> str:
+        if plan_id not in self._test_plan_root_suite_cache:
+            suites = (
+                self._call(self._test_plan_client.get_test_suites_for_plan, project, plan_id)
+                or []
+            )
+            root = next(s for s in suites if s.parent_suite is None)
+            self._test_plan_root_suite_cache[plan_id] = str(root.id)
+        return self._test_plan_root_suite_cache[plan_id]
+
+    def list_security_groups(self, project: str) -> list[SecurityGroup]:
+        project_id = self._get_project_id(project)
+        project_descriptor = self._call(self._graph_client.get_descriptor, project_id).value
+        groups = self._call(self._graph_client.list_groups, scope_descriptor=project_descriptor)
+
+        result = []
+        for group in groups.graph_groups or []:
+            if group.display_name in _DEFAULT_SECURITY_GROUP_NAMES:
+                continue
+
+            memberships = (
+                self._call(
+                    self._graph_client.list_memberships, group.descriptor, direction="down"
+                )
+                or []
+            )
+            member_descriptors = [m.member_descriptor for m in memberships]
+            member_identities = []
+            if member_descriptors:
+                subjects = self._call(
+                    self._graph_client.lookup_subjects,
+                    GraphSubjectLookup(
+                        lookup_keys=[
+                            GraphSubjectLookupKey(descriptor=d) for d in member_descriptors
+                        ]
+                    ),
+                )
+                for subject in (subjects or {}).values():
+                    # Nested-group members are skipped; only direct user
+                    # members are migrated, consistent with
+                    # list_project_users().
+                    if getattr(subject, "subject_kind", None) != "user":
+                        continue
+                    identity = getattr(subject, "principal_name", None) or getattr(
+                        subject, "mail_address", None
+                    )
+                    if identity:
+                        member_identities.append(identity)
+
+            result.append(
+                SecurityGroup(
+                    id=group.descriptor,
+                    name=group.display_name,
+                    member_identities=member_identities,
+                )
+            )
+        return result
+
+    def create_security_group(
+        self, project: str, name: str, member_identities: list[str]
+    ) -> Optional[SecurityGroup]:
+        def do_create() -> SecurityGroup:
+            project_id = self._get_project_id(project)
+            project_descriptor = self._call(
+                self._graph_client.get_descriptor, project_id
+            ).value
+            # The SDK's GraphGroupCreationContext model only supports
+            # storage-key-based creation (its own docstring says not to use
+            # it to create a new group); creating a native ADO group by
+            # display name needs the raw REST body the SDK doesn't model.
+            created = self._raw_request(
+                "POST",
+                f"{self._graph_base_url}/_apis/graph/groups",
+                {"scopeDescriptor": project_descriptor, "api-version": "7.1-preview.1"},
+                json_body={"displayName": name},
+            )
+            group_descriptor = created["descriptor"]
+            for identity in member_identities:
+                member_descriptor = self._resolve_user_descriptor(identity)
+                if member_descriptor:
+                    self._call(
+                        self._graph_client.add_membership, member_descriptor, group_descriptor
+                    )
+            return SecurityGroup(
+                id=group_descriptor,
+                name=created["displayName"],
+                member_identities=list(member_identities),
+            )
+
+        return self._mutate(f"create security group '{name}' in {project}", do_create)
+
+    def _resolve_user_descriptor(self, principal_name: str) -> Optional[str]:
+        matches = self._call(
+            self._graph_client.query_subjects,
+            GraphSubjectQuery(query=principal_name, subject_kind=["User"]),
+        )
+        return matches[0].descriptor if matches else None
+
+    def list_release_pipelines(self, project: str) -> list[ReleasePipeline]:
+        definitions = self._call(self._release_client.get_release_definitions, project)
+        return [ReleasePipeline(id=str(d.id), name=d.name) for d in (definitions or [])]
+
+    def list_dashboards(self, project: str) -> list[Dashboard]:
+        dashboards = self._call(
+            self._dashboard_client.get_dashboards_by_project,
+            DashboardTeamContext(project=project),
+        )
+        return [
+            Dashboard(
+                id=d.id,
+                name=d.name,
+                widgets=[w.name or w.id for w in (d.widgets or [])],
+            )
+            for d in (dashboards or [])
+        ]
+
+    def list_artifact_feeds(self, project: str) -> list[ArtifactFeed]:
+        feeds = self._call(self._feed_client.get_feeds, project=project)
+        return [ArtifactFeed(id=f.id, name=f.name) for f in (feeds or [])]
+
+    def list_used_extensions(self, project: str) -> list[Extension]:
+        # Extensions are installed at the organization level in Azure
+        # DevOps, not per-project, so `project` has no effect on this list.
+        extensions = self._call(self._extension_management_client.get_installed_extensions)
+        return [
+            Extension(id=e.extension_id, name=e.extension_name) for e in (extensions or [])
+        ]
+
     def _download_attachment(self, project: str, relation) -> Attachment:
         attachment_id = urlparse(relation.url).path.rstrip("/").split("/")[-1]
         name = (relation.attributes or {}).get("name", attachment_id)
@@ -352,6 +857,42 @@ class RealAdoClient(AdoClient):
             if status_code in _TRANSIENT_STATUS_CODES:
                 raise TransientError(str(exc)) from exc
             raise
+
+    @property
+    def _graph_base_url(self) -> str:
+        # The Graph API is hosted on a dedicated vssps subdomain rather
+        # than dev.azure.com.
+        org_name = urlparse(self._organization_url).path.strip("/")
+        return f"https://vssps.dev.azure.com/{org_name}"
+
+    def _raw_request(
+        self,
+        method: str,
+        url: str,
+        params: dict[str, str],
+        json_body: Optional[dict] = None,
+    ) -> Any:
+        """Fallback for endpoints the typed SDK models can't fully express
+        (see spec: "fall back to raw REST calls via requests only for
+        endpoints the SDK doesn't cover")."""
+
+        def do_call():
+            response = requests.request(
+                method,
+                url,
+                params=params,
+                json=json_body,
+                auth=("", self._pat),
+                timeout=100,
+            )
+            if response.status_code in _TRANSIENT_STATUS_CODES:
+                raise TransientError(
+                    f"{method} {url} -> {response.status_code}: {response.text}"
+                )
+            response.raise_for_status()
+            return response.json() if response.content else None
+
+        return self._call(do_call)
 
 
 def _split_leaf(path: str) -> tuple[str, str]:
