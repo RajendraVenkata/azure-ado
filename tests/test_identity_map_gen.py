@@ -1,6 +1,6 @@
 import yaml
 
-from ado_migrate.client import InMemoryFakeAdoClient, WorkItem
+from ado_migrate.client import InMemoryFakeAdoClient
 from ado_migrate.identity_map_gen import collect_identities, parse_args, render_identity_map
 
 
@@ -32,30 +32,11 @@ def test_parse_args_accepts_custom_output_path():
     assert args.output == "custom.yaml"
 
 
-def test_collect_identities_returns_sorted_unique_assigned_to_values():
+def test_collect_identities_returns_sorted_unique_project_users():
     client = InMemoryFakeAdoClient(dry_run=False)
-    client.seed_work_items(
+    client.seed_project_users(
         "SourceProject",
-        [
-            WorkItem(
-                id="1",
-                work_item_type="Bug",
-                revisions=[
-                    {"Title": "Crash", "AssignedTo": "bob@source.com"},
-                    {"Title": "Crash", "AssignedTo": "alice@source.com"},
-                ],
-            ),
-            WorkItem(
-                id="2",
-                work_item_type="Task",
-                revisions=[{"Title": "Docs", "AssignedTo": "alice@source.com"}],
-            ),
-            WorkItem(
-                id="3",
-                work_item_type="Task",
-                revisions=[{"Title": "No owner"}],
-            ),
-        ],
+        ["bob@source.com", "alice@source.com", "alice@source.com"],
     )
 
     identities = collect_identities(client, "SourceProject")
@@ -63,12 +44,8 @@ def test_collect_identities_returns_sorted_unique_assigned_to_values():
     assert identities == ["alice@source.com", "bob@source.com"]
 
 
-def test_collect_identities_returns_empty_list_when_no_assigned_to():
+def test_collect_identities_returns_empty_list_when_no_project_users():
     client = InMemoryFakeAdoClient(dry_run=False)
-    client.seed_work_items(
-        "SourceProject",
-        [WorkItem(id="1", work_item_type="Bug", revisions=[{"Title": "Crash"}])],
-    )
 
     assert collect_identities(client, "SourceProject") == []
 

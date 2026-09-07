@@ -86,7 +86,7 @@ Any source identity not covered by the map is flagged in the report and replaced
 
 ### Generate a starter identity.yaml
 
-`generate-identity-map` connects to the source project, scans its work items for every `AssignedTo` identity, and writes an `identity.yaml` with each one defaulted to itself — so the file is valid to run immediately, and you only need to edit the right-hand side of the entries that actually differ in the destination org.
+`generate-identity-map` connects to the source project and lists the identities with project-level permissions there — the same set shown under **Project Settings > Permissions > Users** in the Azure DevOps UI — then writes an `identity.yaml` with each one defaulted to itself. The file is valid to run immediately; you only need to edit the right-hand side of the entries that actually differ in the destination org.
 
 macOS/Linux:
 

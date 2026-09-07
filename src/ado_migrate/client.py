@@ -149,6 +149,7 @@ class InMemoryFakeAdoClient(AdoClient):
         self._dashboards: dict[str, list[Dashboard]] = {}
         self._artifact_feeds: dict[str, list[ArtifactFeed]] = {}
         self._used_extensions: dict[str, list[Extension]] = {}
+        self._project_users: dict[str, list[str]] = {}
 
     def create_placeholder(self, name: str) -> Optional[str]:
         def do_create() -> str:
@@ -200,6 +201,12 @@ class InMemoryFakeAdoClient(AdoClient):
             return path
 
         return self._mutate(f"create iteration path '{path}' in {project}", do_create)
+
+    def seed_project_users(self, project: str, users: list[str]) -> None:
+        self._project_users.setdefault(project, []).extend(users)
+
+    def list_project_users(self, project: str) -> list[str]:
+        return list(self._project_users.get(project, []))
 
     def seed_work_items(self, project: str, work_items: list[WorkItem]) -> None:
         self._work_items.setdefault(project, []).extend(work_items)

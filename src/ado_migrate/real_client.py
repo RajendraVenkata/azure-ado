@@ -44,6 +44,7 @@ _WIT_CLIENT_PATH = (
 )
 _GIT_CLIENT_PATH = "azure.devops.v7_1.git.git_client.GitClient"
 _CORE_CLIENT_PATH = "azure.devops.v7_1.core.core_client.CoreClient"
+_GRAPH_CLIENT_PATH = "azure.devops.v7_1.graph.graph_client.GraphClient"
 _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _STATUS_CODE_IN_MESSAGE = re.compile(r"returned a (\d+) status code")
 
@@ -57,6 +58,7 @@ class RealAdoClient(AdoClient):
         self._wit_client = connection.get_client(_WIT_CLIENT_PATH)
         self._git_client = connection.get_client(_GIT_CLIENT_PATH)
         self._core_client = connection.get_client(_CORE_CLIENT_PATH)
+        self._graph_client = connection.get_client(_GRAPH_CLIENT_PATH)
         self._organization_url = organization_url.rstrip("/")
         self._project_id_cache: dict[str, str] = {}
 
@@ -290,6 +292,35 @@ class RealAdoClient(AdoClient):
             team_project = self._call(self._core_client.get_project, project)
             self._project_id_cache[project] = team_project.id
         return self._project_id_cache[project]
+
+    def list_project_users(self, project: str) -> list[str]:
+        """Identities with a materialized membership in the project's scope.
+
+        Mirrors what Project Settings > Permissions > Users shows in the
+        Azure DevOps UI (direct project members, not the security groups
+        themselves).
+        """
+        project_id = self._get_project_id(project)
+        project_descriptor = self._call(self._graph_client.get_descriptor, project_id).value
+
+        identities: list[str] = []
+        continuation_token = None
+        while True:
+            page = self._call(
+                self._graph_client.list_users,
+                scope_descriptor=project_descriptor,
+                continuation_token=continuation_token,
+            )
+            for user in page.graph_users or []:
+                identity = user.principal_name or user.mail_address
+                if identity:
+                    identities.append(identity)
+
+            continuation_token = page.continuation_token
+            if not continuation_token:
+                break
+
+        return identities
 
     def _download_attachment(self, project: str, relation) -> Attachment:
         attachment_id = urlparse(relation.url).path.rstrip("/").split("/")[-1]

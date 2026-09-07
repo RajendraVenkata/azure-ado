@@ -1,6 +1,7 @@
-"""generate-identity-map: scan a source project's work items for AssignedTo
-identities and emit a starter identity.yaml, each identity defaulted to
-itself as the destination value.
+"""generate-identity-map: list the identities with project-level permissions
+in a source project (Project Settings > Permissions > Users) and emit a
+starter identity.yaml, each identity defaulted to itself as the destination
+value.
 
 Network calls (`main`) are deliberately excluded from the automated test
 suite, consistent with this codebase's convention for real-client entry
@@ -39,13 +40,7 @@ def parse_args(argv: list[str]) -> Namespace:
 
 
 def collect_identities(client: AdoClient, project: str) -> list[str]:
-    identities: set[str] = set()
-    for work_item in client.list_work_items(project):
-        for revision in work_item.revisions:
-            assigned_to = revision.get("AssignedTo")
-            if assigned_to:
-                identities.add(assigned_to)
-    return sorted(identities)
+    return sorted(set(client.list_project_users(project)))
 
 
 def render_identity_map(identities: list[str]) -> str:
