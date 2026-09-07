@@ -189,14 +189,38 @@ class RealAdoClient(AdoClient):
         )
 
     def list_work_items(self, project: str) -> list[WorkItem]:
-        result = self._call(
-            self._wit_client.query_by_wiql,
-            Wiql(query="SELECT [System.Id] FROM WorkItems"),
-            team_context=TeamContext(project=project),
-        )
         return [
-            self.get_work_item(project, str(item.id)) for item in (result.work_items or [])
+            self.get_work_item(project, str(work_item_id))
+            for work_item_id in self._list_work_item_ids(project)
         ]
+
+    def _list_work_item_ids(self, project: str) -> list[int]:
+        # Azure DevOps caps WIQL results at 20000 rows per query (VS402337),
+        # so projects above that size must be paged by System.Id.
+        page_size = 19999
+        ids: list[int] = []
+        last_id = 0
+        while True:
+            result = self._call(
+                self._wit_client.query_by_wiql,
+                Wiql(
+                    query=(
+                        "SELECT [System.Id] FROM WorkItems "
+                        f"WHERE [System.Id] > {last_id} "
+                        "ORDER BY [System.Id] ASC"
+                    )
+                ),
+                team_context=TeamContext(project=project),
+                top=page_size,
+            )
+            page = [item.id for item in (result.work_items or [])]
+            if not page:
+                break
+            ids.extend(page)
+            last_id = page[-1]
+            if len(page) < page_size:
+                break
+        return ids
 
     def get_work_item(self, project: str, destination_id: str) -> WorkItem:
         revisions_raw = self._call(
