@@ -16,6 +16,7 @@ dev = [
 [project.scripts]
 migrate = "ado_migrate.cli:main"
 seed-ado = "ado_migrate.seed_ado:main"
+generate-identity-map = "ado_migrate.identity_map_gen:main"
 
 [build-system]
 requires = ["setuptools>=68"]

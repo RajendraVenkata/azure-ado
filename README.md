@@ -34,7 +34,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 ```
 
-This installs two console scripts: `migrate` and `seed-ado`.
+This installs three console scripts: `migrate`, `seed-ado`, and `generate-identity-map`.
 
 ## Configure
 
@@ -84,6 +84,31 @@ mappings:
 
 Any source identity not covered by the map is flagged in the report and replaced with an `unmapped-owner` placeholder rather than being silently dropped.
 
+### Generate a starter identity.yaml
+
+`generate-identity-map` connects to the source project, scans its work items for every `AssignedTo` identity, and writes an `identity.yaml` with each one defaulted to itself — so the file is valid to run immediately, and you only need to edit the right-hand side of the entries that actually differ in the destination org.
+
+macOS/Linux:
+
+```bash
+export MY_PAT=...
+generate-identity-map --org https://dev.azure.com/source-org --pat-env MY_PAT --project MyProject --output identity.yaml
+```
+
+Windows (PowerShell):
+
+```powershell
+$env:MY_PAT = "..."
+generate-identity-map --org https://dev.azure.com/source-org --pat-env MY_PAT --project MyProject --output identity.yaml
+```
+
+Windows (cmd.exe):
+
+```bat
+set MY_PAT=...
+generate-identity-map --org https://dev.azure.com/source-org --pat-env MY_PAT --project MyProject --output identity.yaml
+```
+
 ## Run a migration
 
 ```bash
@@ -119,6 +144,13 @@ $env:MY_PAT = "..."
 seed-ado --org https://dev.azure.com/my-org --pat-env MY_PAT --project-prefix ado-migrate-test
 ```
 
+Windows (cmd.exe):
+
+```bat
+set MY_PAT=...
+seed-ado --org https://dev.azure.com/my-org --pat-env MY_PAT --project-prefix ado-migrate-test
+```
+
 This writes `seeded-config.yaml` with the `source` section filled in; fill in the `destination` section before running `migrate` against it.
 
 ## Run tests
@@ -130,4 +162,4 @@ pytest
 ## Known limitations
 
 - v1 scope excludes pipelines, wikis, test plans, service connections, and security groups migration logic beyond what's flagged in the report; see `docs/superpowers/specs/2026-09-03-ado-migration-framework.md` for the full scope discussion.
-- The `migrate` CLI entry point (`src/ado_migrate/cli.py`) currently wires up the abstract `AdoClient`/`GitTransport` base classes rather than `RealAdoClient`/`RealGitTransport`, so it is not yet wired for live-org runs — `seed-ado` is the only entry point currently exercising the real Azure DevOps SDK client.
+- The `migrate` CLI entry point (`src/ado_migrate/cli.py`) currently wires up the abstract `AdoClient`/`GitTransport` base classes rather than `RealAdoClient`/`RealGitTransport`, so it is not yet wired for live-org runs — `seed-ado` and `generate-identity-map` are the only entry points currently exercising the real Azure DevOps SDK client.
