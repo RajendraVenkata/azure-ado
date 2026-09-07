@@ -77,6 +77,9 @@ def run_migration(
             state.record_failure(artifact_type, str(e))
             failures.append(f"{artifact_type}: {e}")
 
+    if identity_map.resolved:
+        sections.append(ReportSection(title="Users", items=identity_map.report_items()))
+
     if failures:
         sections.append(ReportSection(title="Failures", items=failures))
 
