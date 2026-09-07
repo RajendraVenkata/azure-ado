@@ -26,20 +26,28 @@ _TRANSIENT_MARKERS = (
 
 
 class RealGitTransport(GitTransport):
-    def __init__(self, pat: str, dry_run: bool = False):
+    """source_pat/destination_pat are separate because a migration mirrors
+    between two different Azure DevOps organizations, each requiring its own
+    PAT — pass the same value for both when source and destination share an
+    organization (e.g. seed-ado's single-org test data push)."""
+
+    def __init__(self, source_pat: str, destination_pat: str, dry_run: bool = False):
         super().__init__(dry_run)
-        self._pat = pat
+        self._source_pat = source_pat
+        self._destination_pat = destination_pat
 
     def push_mirror(self, source_url: str, destination_url: str) -> None:
         def do_push() -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
-                self._run_git(["clone", "--mirror", source_url, tmp_dir])
-                self._run_git(["push", "--mirror", destination_url], cwd=tmp_dir)
+                self._run_git(["clone", "--mirror", source_url, tmp_dir], self._source_pat)
+                self._run_git(
+                    ["push", "--mirror", destination_url], self._destination_pat, cwd=tmp_dir
+                )
 
         self._mutate(f"push mirror {source_url} -> {destination_url}", do_push)
 
-    def _run_git(self, args: list[str], cwd: Optional[str] = None) -> None:
-        auth_header = f"Authorization: Basic {_basic_auth_header(self._pat)}"
+    def _run_git(self, args: list[str], pat: str, cwd: Optional[str] = None) -> None:
+        auth_header = f"Authorization: Basic {_basic_auth_header(pat)}"
         command = ["git", "-c", f"http.extraHeader={auth_header}", *args]
 
         try:

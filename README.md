@@ -162,4 +162,4 @@ pytest
 ## Known limitations
 
 - v1 scope excludes pipelines, wikis, test plans, service connections, and security groups migration logic beyond what's flagged in the report; see `docs/superpowers/specs/2026-09-03-ado-migration-framework.md` for the full scope discussion.
-- The `migrate` CLI entry point (`src/ado_migrate/cli.py`) currently wires up the abstract `AdoClient`/`GitTransport` base classes rather than `RealAdoClient`/`RealGitTransport`, so it is not yet wired for live-org runs — `seed-ado` and `generate-identity-map` are the only entry points currently exercising the real Azure DevOps SDK client.
+- `real_client.py` and `real_git_transport.py` make real calls to Azure DevOps and are deliberately excluded from the automated test suite (per this repo's convention — see their module docstrings); verify changes to them manually against a real org.

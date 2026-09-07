@@ -9,6 +9,8 @@ from ado_migrate.config import load_config
 from ado_migrate.git_transport import GitTransport
 from ado_migrate.identity import IdentityMap, load_identity_map
 from ado_migrate.orchestrator import run_migration
+from ado_migrate.real_client import RealAdoClient
+from ado_migrate.real_git_transport import RealGitTransport
 from ado_migrate.report import render_report
 from ado_migrate.state import StateStore
 
@@ -59,9 +61,18 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    source_client = AdoClient(dry_run=False)
-    dest_client = AdoClient(dry_run=args.dry_run)
-    git_transport = GitTransport(dry_run=args.dry_run)
+    config = load_config(args.config)  # validates config + resolves PATs
+
+    # Source is never written to, regardless of --dry-run.
+    source_client = RealAdoClient(
+        config.source.organization_url, config.source.pat, dry_run=False
+    )
+    dest_client = RealAdoClient(
+        config.destination.organization_url, config.destination.pat, dry_run=args.dry_run
+    )
+    git_transport = RealGitTransport(
+        config.source.pat, config.destination.pat, dry_run=args.dry_run
+    )
     return run(args, source_client, dest_client, git_transport)
 
 

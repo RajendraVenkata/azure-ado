@@ -232,7 +232,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         create_project(args.org, pat, project_name)
 
         real_client = RealAdoClient(args.org, pat, dry_run=False)
-        git_transport = RealGitTransport(pat, dry_run=False)
+        git_transport = RealGitTransport(pat, pat, dry_run=False)
         plan = generate_seed_plan(work_item_count=args.work_item_count)
         seed_project(real_client, git_transport, pat, project_name, plan)
     except Exception as exc:
