@@ -10,9 +10,27 @@ A Python CLI framework for migrating an Azure DevOps project (work items, area/i
 
 ## Install
 
+macOS/Linux:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
+
+Windows (cmd.exe):
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
 pip install -e ".[dev]"
 ```
 
@@ -33,11 +51,27 @@ destination:
   pat_env: ADO_DEST_PAT
 ```
 
-`pat_env` names an environment variable holding the PAT — PAT values are never written in the config file itself. Export the referenced variables before running:
+`pat_env` names an environment variable holding the PAT — PAT values are never written in the config file itself. Set the referenced variables before running:
+
+macOS/Linux:
 
 ```bash
 export ADO_SOURCE_PAT=...
 export ADO_DEST_PAT=...
+```
+
+Windows (PowerShell):
+
+```powershell
+$env:ADO_SOURCE_PAT = "..."
+$env:ADO_DEST_PAT = "..."
+```
+
+Windows (cmd.exe):
+
+```bat
+set ADO_SOURCE_PAT=...
+set ADO_DEST_PAT=...
 ```
 
 Optionally, create an identity map file to translate source identities (e.g. email addresses) to their destination equivalents:
@@ -71,8 +105,17 @@ Output, written next to the config file:
 
 `seed-ado` creates a throwaway Azure DevOps project in a real org and populates it with sample data, useful for exercising a migration end to end:
 
+macOS/Linux:
+
 ```bash
 export MY_PAT=...
+seed-ado --org https://dev.azure.com/my-org --pat-env MY_PAT --project-prefix ado-migrate-test
+```
+
+Windows (PowerShell):
+
+```powershell
+$env:MY_PAT = "..."
 seed-ado --org https://dev.azure.com/my-org --pat-env MY_PAT --project-prefix ado-migrate-test
 ```
 
