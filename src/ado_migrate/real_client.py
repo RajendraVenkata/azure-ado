@@ -107,6 +107,15 @@ _EXTENSION_MANAGEMENT_CLIENT_PATH = (
 _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _STATUS_CODE_IN_MESSAGE = re.compile(r"returned a (\d+) status code")
 
+# Workload Identity Federation auth parameters Azure DevOps derives itself
+# from the organization/project/endpoint name once the endpoint exists;
+# sending them back on create is rejected ("this field is automatically
+# derived...").
+_AUTO_DERIVED_AUTH_PARAMETERS = {
+    "workloadidentityfederationissuer",
+    "workloadidentityfederationsubject",
+}
+
 # Built-in groups every Azure DevOps project already has by default; these
 # are never migrated since they already exist in the destination project.
 _DEFAULT_SECURITY_GROUP_NAMES = {
@@ -146,6 +155,7 @@ class RealAdoClient(AdoClient):
         self._organization_url = organization_url.rstrip("/")
         self._project_id_cache: dict[str, str] = {}
         self._test_plan_root_suite_cache: dict[str, str] = {}
+        self._read_only_fields_cache: dict[str, set[str]] = {}
 
     def list_area_paths(self, project: str) -> list[str]:
         root = self._call(
@@ -290,7 +300,9 @@ class RealAdoClient(AdoClient):
         self, project: str, work_item_type: str, fields: dict[str, Any]
     ) -> Optional[str]:
         def do_create() -> str:
-            document = _fields_to_patch_document(fields, project)
+            document = _fields_to_patch_document(
+                fields, project, self._read_only_field_names(project)
+            )
             created = self._call(
                 self._wit_client.create_work_item, document, project, work_item_type
             )
@@ -302,7 +314,9 @@ class RealAdoClient(AdoClient):
         self, project: str, destination_id: str, fields: dict[str, Any]
     ) -> None:
         def do_update() -> None:
-            document = _fields_to_patch_document(fields, project)
+            document = _fields_to_patch_document(
+                fields, project, self._read_only_field_names(project)
+            )
             self._call(
                 self._wit_client.update_work_item,
                 document,
@@ -452,6 +466,19 @@ class RealAdoClient(AdoClient):
             self._project_id_cache[project] = team_project.id
         return self._project_id_cache[project]
 
+    def _read_only_field_names(self, project: str) -> set[str]:
+        """Reference names of fields the destination project's process
+        marks read-only (board column/lane state, and any org-specific
+        custom read-only field) — these can never be set via a work item
+        patch and must be dropped rather than hand-maintaining a list of
+        field names to exclude."""
+        if project not in self._read_only_fields_cache:
+            fields = self._call(self._wit_client.get_work_item_fields, project=project)
+            self._read_only_fields_cache[project] = {
+                f.reference_name for f in (fields or []) if f.read_only
+            }
+        return self._read_only_fields_cache[project]
+
     def list_project_users(self, project: str) -> list[str]:
         """Identities with a materialized membership in the project's scope.
 
@@ -571,7 +598,11 @@ class RealAdoClient(AdoClient):
             # came back from the read rather than wiping it: the credential
             # itself is still missing and must be re-entered manually — the
             # report already flags that via has_secret.
-            parameters = dict(config.get("parameters", {}))
+            parameters = {
+                key: value
+                for key, value in config.get("parameters", {}).items()
+                if key.lower() not in _AUTO_DERIVED_AUTH_PARAMETERS
+            }
             endpoint = ServiceEndpoint(
                 name=name,
                 type=connection_type,
@@ -1058,16 +1089,17 @@ def _extract_status_code(exc: Exception) -> Optional[int]:
 
 
 def _fields_to_patch_document(
-    fields: dict[str, Any], project: str
+    fields: dict[str, Any], project: str, read_only_fields: set[str]
 ) -> list[JsonPatchOperation]:
     operations = []
     for key, value in fields.items():
+        reference_name = _FIELD_REFERENCE_NAMES.get(key, key)
+        if reference_name in read_only_fields:
+            continue
         if key in ("AreaPath", "IterationPath"):
             value = _full_path(value, project)
         operations.append(
-            JsonPatchOperation(
-                op="add", path=f"/fields/{_FIELD_REFERENCE_NAMES.get(key, key)}", value=value
-            )
+            JsonPatchOperation(op="add", path=f"/fields/{reference_name}", value=value)
         )
     return operations
 
