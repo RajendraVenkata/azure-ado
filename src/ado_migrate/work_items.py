@@ -17,11 +17,12 @@ def migrate_work_items(
     items = []
 
     for work_item in source_client.list_work_items(source_project):
+        resolved_revisions = [
+            _resolve_fields(fields, identity_map, state)
+            for fields in work_item.revisions
+        ]
+
         if not state.is_complete(ARTIFACT_TYPE, source_id=work_item.id):
-            resolved_revisions = [
-                _resolve_fields(fields, identity_map, state)
-                for fields in work_item.revisions
-            ]
             first_fields, *later_revisions = resolved_revisions
             destination_id = dest_client.create_work_item(
                 dest_project, work_item.work_item_type, first_fields

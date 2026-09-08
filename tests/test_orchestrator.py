@@ -122,6 +122,39 @@ def test_run_migration_reports_users_referenced_by_migrated_work_items(tmp_path)
     assert users_section.items == ["alice@x.com -> alice@y.com"]
 
 
+def test_run_migration_reports_users_for_already_completed_work_items(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    git_transport = InMemoryFakeGitTransport(dry_run=False)
+    source.seed_work_items(
+        "SourceProject",
+        [
+            WorkItem(
+                id="1",
+                work_item_type="Bug",
+                revisions=[{"Title": "Crash", "AssignedTo": "alice@x.com"}],
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    state.mark_complete("work_items", source_id="1", destination_id="1")
+    identity_map = IdentityMap({"alice@x.com": "alice@y.com"})
+
+    report = run_migration(
+        source,
+        dest,
+        git_transport,
+        "SourceProject",
+        "DestProject",
+        state,
+        identity_map,
+        only={"work_items"},
+    )
+
+    users_section = next(s for s in report.sections if s.title == "Users")
+    assert users_section.items == ["alice@x.com -> alice@y.com"]
+
+
 def test_run_migration_transient_failure_does_not_surface_as_a_failure(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=False)
