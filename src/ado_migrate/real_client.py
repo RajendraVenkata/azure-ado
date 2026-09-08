@@ -950,7 +950,21 @@ def _fields_to_patch_document(fields: dict[str, Any]) -> list[JsonPatchOperation
 
 
 def _friendlify_fields(fields: Optional[dict[str, Any]]) -> dict[str, Any]:
-    return {_FRIENDLY_FIELD_NAMES.get(k, k): v for k, v in (fields or {}).items()}
+    result = {}
+    for reference_name, value in (fields or {}).items():
+        if reference_name == "System.AssignedTo":
+            value = _identity_ref_to_string(value)
+        result[_FRIENDLY_FIELD_NAMES.get(reference_name, reference_name)] = value
+    return result
+
+
+def _identity_ref_to_string(value: Any) -> Any:
+    """Identity-typed fields (e.g. AssignedTo) come back from the REST API as
+    an IdentityRef object, not a plain string. Reduce it to the identity
+    string the rest of the pipeline (identity map resolution) expects."""
+    if isinstance(value, dict):
+        return value.get("uniqueName") or value.get("displayName") or value
+    return value
 
 
 def _parse_links(relations: list) -> list[Link]:
