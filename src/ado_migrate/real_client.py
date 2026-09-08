@@ -541,6 +541,10 @@ class RealAdoClient(AdoClient):
                     config={
                         "scheme": scheme,
                         "parameters": dict(auth.parameters or {}) if auth else {},
+                        # Azure Resource Manager endpoints carry
+                        # subscriptionId/subscriptionName/environment here,
+                        # not in authorization.parameters.
+                        "data": dict(endpoint.data or {}),
                         "url": endpoint.url,
                     },
                     has_secret=has_secret,
@@ -572,6 +576,7 @@ class RealAdoClient(AdoClient):
                 name=name,
                 type=connection_type,
                 url=config.get("url"),
+                data=dict(config.get("data", {})),
                 authorization=EndpointAuthorization(scheme=scheme, parameters=parameters),
                 service_endpoint_project_references=[
                     ServiceEndpointProjectReference(
@@ -1070,6 +1075,13 @@ def _fields_to_patch_document(
 def _friendlify_fields(fields: Optional[dict[str, Any]], project: str) -> dict[str, Any]:
     result = {}
     for reference_name, value in (fields or {}).items():
+        if reference_name.startswith("WEF_"):
+            # Per-team Kanban board extension fields (board column/lane/done
+            # state, named "WEF_<team-field-id>_Kanban.Column" etc.) are
+            # dynamically provisioned per organization and don't exist in
+            # the destination project — writing them back verbatim fails
+            # the whole work item with "Cannot find field ...".
+            continue
         if reference_name == "System.AssignedTo":
             value = _identity_ref_to_string(value)
         elif reference_name in ("System.AreaPath", "System.IterationPath"):
