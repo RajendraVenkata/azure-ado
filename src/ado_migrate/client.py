@@ -315,6 +315,12 @@ class InMemoryFakeAdoClient(AdoClient):
 
         return self._mutate(f"create wiki '{name}' in {project}", do_create)
 
+    def publish_wiki(self, project: str, repo_id: str, name: str) -> Optional[Repo]:
+        def do_publish() -> Repo:
+            return next(w for w in self._wikis.get(project, []) if w.id == repo_id)
+
+        return self._mutate(f"publish wiki '{name}' in {project}", do_publish)
+
     def seed_service_connections(
         self, project: str, connections: list[ServiceConnection]
     ) -> None:

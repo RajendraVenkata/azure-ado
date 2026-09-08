@@ -33,7 +33,7 @@ def test_rewrite_work_item_links_rewrites_link_to_migrated_work_item(tmp_path):
     assert section.items == []
 
 
-def test_rewrite_work_item_links_preserves_link_to_out_of_scope_work_item(tmp_path):
+def test_rewrite_work_item_links_omits_link_to_out_of_scope_work_item(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=False)
     source.seed_work_items(
@@ -56,7 +56,7 @@ def test_rewrite_work_item_links_preserves_link_to_out_of_scope_work_item(tmp_pa
     )
 
     dest_wi1 = dest.get_work_item("DestProject", dest_item_1)
-    assert dest_wi1.links == [Link(link_type="work_item", target="999")]
+    assert dest_wi1.links == []
     assert section.items == ["1 -> 999 (work_item)"]
 
 
@@ -88,7 +88,7 @@ def test_rewrite_work_item_links_rewrites_pull_request_link_to_migrated_repo(tmp
     assert section.items == []
 
 
-def test_rewrite_work_item_links_preserves_pull_request_link_to_unmigrated_repo(
+def test_rewrite_work_item_links_omits_pull_request_link_to_unmigrated_repo(
     tmp_path,
 ):
     source = InMemoryFakeAdoClient(dry_run=False)
@@ -113,7 +113,7 @@ def test_rewrite_work_item_links_preserves_pull_request_link_to_unmigrated_repo(
     )
 
     dest_wi1 = dest.get_work_item("DestProject", dest_item_1)
-    assert dest_wi1.links == [Link(link_type="pull_request", target="repo-1:42")]
+    assert dest_wi1.links == []
     assert section.items == ["1 -> repo-1:42 (pull_request)"]
 
 

@@ -1,5 +1,5 @@
 from ado_migrate.client import AdoClient
-from ado_migrate.identity import IdentityMap
+from ado_migrate.identity import UNMAPPED_PLACEHOLDER, IdentityMap
 from ado_migrate.report import ReportSection
 from ado_migrate.state import StateStore
 
@@ -51,7 +51,15 @@ def migrate_work_items(
 def _resolve_fields(fields: dict, identity_map: IdentityMap, state: StateStore) -> dict:
     resolved = dict(fields)
     if "AssignedTo" in resolved:
-        resolved["AssignedTo"] = identity_map.resolve(resolved["AssignedTo"])
+        destination_identity = identity_map.resolve(resolved["AssignedTo"])
+        if destination_identity == UNMAPPED_PLACEHOLDER:
+            # Azure DevOps validates AssignedTo against real identities and
+            # rejects the placeholder outright, so leave the field unset
+            # rather than fail the whole work item; the unmapped identity is
+            # still surfaced via the Users report section.
+            del resolved["AssignedTo"]
+        else:
+            resolved["AssignedTo"] = destination_identity
     if "AreaPath" in resolved:
         resolved["AreaPath"] = _resolve_path(resolved["AreaPath"], "area_paths", state)
     if "IterationPath" in resolved:

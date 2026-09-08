@@ -26,9 +26,10 @@ def rewrite_work_item_links(
         resolved_links = []
         for link in work_item.links:
             resolved_link, is_external = _resolve_link(link, state)
-            resolved_links.append(resolved_link)
             if is_external:
                 external.append(f"{work_item.id} -> {link.target} ({link.link_type})")
+            else:
+                resolved_links.append(resolved_link)
 
         if not state.is_complete(LINK_REWRITE_ARTIFACT_TYPE, source_id=work_item.id):
             dest_client.update_work_item_links(

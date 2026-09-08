@@ -93,7 +93,7 @@ def test_migrate_work_items_resolves_assigned_to_through_identity_map(tmp_path):
     assert dest_item.revisions[0]["AssignedTo"] == "dest.user@y.com"
 
 
-def test_migrate_work_items_falls_back_to_unmapped_placeholder_for_unknown_assignee(
+def test_migrate_work_items_leaves_assigned_to_unset_for_unknown_assignee(
     tmp_path,
 ):
     source = InMemoryFakeAdoClient(dry_run=False)
@@ -118,7 +118,8 @@ def test_migrate_work_items_falls_back_to_unmapped_placeholder_for_unknown_assig
     destination_id = state.get_destination_id("work_items", source_id="1")
     dest_item = dest.get_work_item("DestProject", destination_id)
 
-    assert dest_item.revisions[0]["AssignedTo"] == UNMAPPED_PLACEHOLDER
+    assert "AssignedTo" not in dest_item.revisions[0]
+    assert identity_map.resolved["nobody@x.com"] == UNMAPPED_PLACEHOLDER
 
 
 def test_migrate_work_items_resolves_area_and_iteration_paths_from_state(tmp_path):

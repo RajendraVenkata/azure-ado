@@ -487,21 +487,30 @@ class RealAdoClient(AdoClient):
 
     def create_wiki(self, project: str, name: str) -> Optional[Repo]:
         def do_create() -> Repo:
-            project_id = self._get_project_id(project)
-            # A code wiki is backed by its own git repo; create that repo
-            # first so the caller's subsequent push_mirror() has somewhere
-            # to push the mirrored wiki content.
+            # A code wiki is backed by its own git repo, and Azure DevOps
+            # requires that repo to already have a default branch before a
+            # codeWiki resource can be created against it — so only create
+            # the (empty) repo here. The caller pushes the mirrored wiki
+            # content via push_mirror(), then calls publish_wiki() to
+            # register it as an actual wiki once a branch exists.
             repo = self._call(
                 self._git_client.create_repository,
                 GitRepositoryCreateOptions(name=name),
                 project=project,
             )
+            return Repo(id=repo.id, name=repo.name, clone_url=repo.remote_url)
+
+        return self._mutate(f"create wiki '{name}' in {project}", do_create)
+
+    def publish_wiki(self, project: str, repo_id: str, name: str) -> Optional[Repo]:
+        def do_publish() -> Repo:
+            project_id = self._get_project_id(project)
             wiki = self._call(
                 self._wiki_client.create_wiki,
                 WikiCreateParametersV2(
                     name=name,
                     project_id=project_id,
-                    repository_id=repo.id,
+                    repository_id=repo_id,
                     type="codeWiki",
                     mapped_path="/",
                 ),
@@ -509,7 +518,7 @@ class RealAdoClient(AdoClient):
             )
             return Repo(id=wiki.id, name=wiki.name, clone_url=wiki.remote_url)
 
-        return self._mutate(f"create wiki '{name}' in {project}", do_create)
+        return self._mutate(f"publish wiki '{name}' in {project}", do_publish)
 
     def list_service_connections(self, project: str) -> list[ServiceConnection]:
         endpoints = self._call(
@@ -550,11 +559,15 @@ class RealAdoClient(AdoClient):
         def do_create() -> ServiceConnection:
             project_id = self._get_project_id(project)
             scheme = config.get("scheme", "None")
-            # Secret parameter values never round-trip through the read API
-            # (see list_service_connections), so a secret-bearing endpoint
-            # is created with empty credentials and must be re-entered
-            # manually afterward — the report already flags this.
-            parameters = {} if has_secret else dict(config.get("parameters", {}))
+            # Azure DevOps already redacts/omits the actual secret value on
+            # read (see list_service_connections), but non-secret parameters
+            # for the same endpoint (tenantid, subscriptionid, ...) do
+            # round-trip and several of them are required by the API even
+            # when the endpoint uses a secret scheme. Pass through whatever
+            # came back from the read rather than wiping it: the credential
+            # itself is still missing and must be re-entered manually — the
+            # report already flags that via has_secret.
+            parameters = dict(config.get("parameters", {}))
             endpoint = ServiceEndpoint(
                 name=name,
                 type=connection_type,
