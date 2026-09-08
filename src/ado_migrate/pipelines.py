@@ -13,9 +13,15 @@ def migrate_pipelines(
     state: StateStore,
 ) -> ReportSection:
     items = []
+    existing_dest_pipeline_ids = {p.id for p in dest_client.list_pipelines(dest_project)}
 
     for pipeline in source_client.list_pipelines(source_project):
-        if not state.is_complete(ARTIFACT_TYPE, source_id=pipeline.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=pipeline.id)
+        already_exists = (
+            destination_id is not None and destination_id in existing_dest_pipeline_ids
+        )
+
+        if not already_exists:
             resolved_repo_id = _resolve(pipeline.repo_id, "repos", state)
             resolved_service_connection_ids = [
                 _resolve(sc_id, "service_connections", state)

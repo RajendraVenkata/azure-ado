@@ -15,9 +15,13 @@ def migrate_wikis(
     state: StateStore,
 ) -> ReportSection:
     items = []
+    existing_dest_wiki_ids = {w.id for w in dest_client.list_wikis(dest_project)}
 
     for wiki in source_client.list_wikis(source_project):
-        if not state.is_complete(ARTIFACT_TYPE, source_id=wiki.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=wiki.id)
+        already_exists = destination_id is not None and destination_id in existing_dest_wiki_ids
+
+        if not already_exists:
             destination_repo = dest_client.create_wiki(dest_project, wiki.name)
             destination_url = (
                 destination_repo.clone_url if destination_repo is not None else None

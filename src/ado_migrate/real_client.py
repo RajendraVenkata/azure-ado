@@ -365,6 +365,13 @@ class RealAdoClient(AdoClient):
             for work_item_id in self._list_work_item_ids(project)
         ]
 
+    def list_work_item_ids(self, project: str) -> set[str]:
+        # A cheap existence check (IDs only, via the same WIQL query used by
+        # list_work_items) — used to detect a destination work item that was
+        # deleted out-of-band without paying for a full revisions+relations+
+        # attachments fetch per item just to confirm it's still there.
+        return {str(work_item_id) for work_item_id in self._list_work_item_ids(project)}
+
     def _list_work_item_ids(self, project: str) -> list[int]:
         # Azure DevOps caps WIQL results at 20000 rows per query (VS402337),
         # so projects above that size must be paged by System.Id. The

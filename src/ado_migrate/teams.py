@@ -19,7 +19,10 @@ def migrate_teams(
         iterations = source_client.list_team_iterations(source_project, team.name)
         area_paths = source_client.list_team_area_paths(source_project, team.name)
 
-        if not state.is_complete(ARTIFACT_TYPE, source_id=team.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=team.id)
+        already_synced = destination_id is not None and destination_id in existing_dest_teams
+
+        if not already_synced:
             if team.name not in existing_dest_teams:
                 dest_client.create_team(dest_project, team.name)
 

@@ -60,6 +60,21 @@ def test_migrate_area_paths_rerun_makes_no_additional_mutating_calls(tmp_path):
     assert section.items == ["Team A"]
 
 
+def test_migrate_area_paths_recreates_path_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_area_paths("SourceProject", ["Team A"])
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_area_paths(source, dest, "SourceProject", "DestProject", state)
+    dest._area_paths["DestProject"] = []
+
+    section = migrate_area_paths(source, dest, "SourceProject", "DestProject", state)
+
+    assert dest.list_area_paths("DestProject") == ["Team A"]
+    assert section.items == ["Team A"]
+
+
 def test_migrate_area_paths_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

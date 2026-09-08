@@ -17,9 +17,15 @@ def migrate_queries(
         **state.list_destination_ids("area_paths"),
         **state.list_destination_ids("iteration_paths"),
     }
+    existing_dest_query_ids = {q.id for q in dest_client.list_queries(dest_project)}
 
     for query in source_client.list_queries(source_project):
-        if not state.is_complete(ARTIFACT_TYPE, source_id=query.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=query.id)
+        already_exists = (
+            destination_id is not None and destination_id in existing_dest_query_ids
+        )
+
+        if not already_exists:
             rewritten_wiql = _rewrite_paths(query.wiql, path_mappings)
             destination_query = dest_client.create_query(
                 dest_project, query.name, query.folder_path, rewritten_wiql

@@ -22,6 +22,7 @@ def migrate_users(
     — there is nothing to add them as."""
     identities = sorted(set(source_client.list_project_users(source_project)))
     items = []
+    existing_dest_members = set(dest_client.list_project_members(dest_project))
 
     for identity in identities:
         destination_identity = identity_map.resolve(identity)
@@ -30,7 +31,10 @@ def migrate_users(
         if destination_identity == UNMAPPED_PLACEHOLDER:
             continue
 
-        if not state.is_complete(ARTIFACT_TYPE, source_id=identity):
+        recorded_id = state.get_destination_id(ARTIFACT_TYPE, source_id=identity)
+        already_member = recorded_id is not None and recorded_id in existing_dest_members
+
+        if not already_member:
             dest_client.add_project_member(dest_project, destination_identity)
 
             if not dest_client.dry_run:

@@ -13,9 +13,13 @@ def migrate_test_plans(
     state: StateStore,
 ) -> ReportSection:
     items = []
+    existing_dest_plan_ids = {p.id for p in dest_client.list_test_plans(dest_project)}
 
     for plan in source_client.list_test_plans(source_project):
-        if not state.is_complete(ARTIFACT_TYPE, source_id=plan.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=plan.id)
+        already_exists = destination_id is not None and destination_id in existing_dest_plan_ids
+
+        if not already_exists:
             destination_plan = dest_client.create_test_plan(dest_project, plan.name)
             destination_plan_id = (
                 destination_plan.id if destination_plan is not None else None

@@ -13,9 +13,17 @@ def migrate_service_connections(
     state: StateStore,
 ) -> ReportSection:
     items = []
+    existing_dest_connection_ids = {
+        c.id for c in dest_client.list_service_connections(dest_project)
+    }
 
     for connection in source_client.list_service_connections(source_project):
-        if not state.is_complete(ARTIFACT_TYPE, source_id=connection.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=connection.id)
+        already_exists = (
+            destination_id is not None and destination_id in existing_dest_connection_ids
+        )
+
+        if not already_exists:
             destination_connection = dest_client.create_service_connection(
                 dest_project,
                 connection.name,

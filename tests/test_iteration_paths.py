@@ -76,6 +76,23 @@ def test_migrate_iteration_paths_rerun_makes_no_additional_mutating_calls(tmp_pa
     assert len(dest.mutation_log) == calls_after_first_run
 
 
+def test_migrate_iteration_paths_recreates_path_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_iteration_paths("SourceProject", [IterationPath(path="Sprint 1")])
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_iteration_paths(source, dest, "SourceProject", "DestProject", state)
+    dest._iteration_paths["DestProject"] = []
+
+    section = migrate_iteration_paths(
+        source, dest, "SourceProject", "DestProject", state
+    )
+
+    assert [p.path for p in dest.list_iteration_paths("DestProject")] == ["Sprint 1"]
+    assert section.items == ["Sprint 1"]
+
+
 def test_migrate_iteration_paths_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

@@ -87,6 +87,32 @@ def test_migrate_pipelines_rerun_makes_no_additional_mutating_calls(tmp_path):
     assert section.items == ["CI"]
 
 
+def test_migrate_pipelines_recreates_pipeline_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_pipelines(
+        "SourceProject",
+        [
+            Pipeline(
+                id="pl-1",
+                name="CI",
+                yaml_path="/azure-pipelines.yml",
+                repo_id="repo-1",
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_pipelines(source, dest, "SourceProject", "DestProject", state)
+    dest._pipelines["DestProject"] = []
+
+    section = migrate_pipelines(source, dest, "SourceProject", "DestProject", state)
+
+    dest_pipelines = dest.list_pipelines("DestProject")
+    assert len(dest_pipelines) == 1
+    assert section.items == ["CI"]
+
+
 def test_migrate_pipelines_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

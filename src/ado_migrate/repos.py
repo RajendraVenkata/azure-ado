@@ -15,9 +15,13 @@ def migrate_repos(
     state: StateStore,
 ) -> ReportSection:
     items = []
+    existing_dest_repo_ids = {r.id for r in dest_client.list_repos(dest_project)}
 
     for repo in source_client.list_repos(source_project):
-        if not state.is_complete(ARTIFACT_TYPE, source_id=repo.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=repo.id)
+        already_exists = destination_id is not None and destination_id in existing_dest_repo_ids
+
+        if not already_exists:
             destination_repo = dest_client.create_repo(dest_project, repo.name)
             destination_url = (
                 destination_repo.clone_url if destination_repo is not None else None

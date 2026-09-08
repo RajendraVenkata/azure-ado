@@ -242,6 +242,9 @@ class InMemoryFakeAdoClient(AdoClient):
     def list_work_items(self, project: str) -> list[WorkItem]:
         return list(self._work_items.get(project, []))
 
+    def list_work_item_ids(self, project: str) -> set[str]:
+        return set(self._destination_work_items.keys())
+
     def create_work_item(
         self, project: str, work_item_type: str, fields: dict[str, Any]
     ) -> Optional[str]:

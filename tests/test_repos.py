@@ -54,6 +54,36 @@ def test_migrate_repos_rerun_makes_no_additional_mutating_calls(tmp_path):
     assert section.items == ["my-repo"]
 
 
+def test_migrate_repos_recreates_repo_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    git_transport = InMemoryFakeGitTransport(dry_run=False)
+    source.seed_repos(
+        "SourceProject",
+        [Repo(id="repo-1", name="my-repo", clone_url="https://source/my-repo.git")],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_repos(source, dest, git_transport, "SourceProject", "DestProject", state)
+    first_destination_id = state.get_destination_id("repos", source_id="repo-1")
+
+    # Simulate someone deleting the migrated repo directly in the destination,
+    # out-of-band from this tool — state.json still says it's complete.
+    dest._repos["DestProject"] = []
+
+    section = migrate_repos(
+        source, dest, git_transport, "SourceProject", "DestProject", state
+    )
+
+    dest_repos = dest.list_repos("DestProject")
+    assert len(dest_repos) == 1
+    assert dest_repos[0].name == "my-repo"
+    new_destination_id = state.get_destination_id("repos", source_id="repo-1")
+    assert new_destination_id == dest_repos[0].id
+    assert new_destination_id != first_destination_id
+    assert section.items == ["my-repo"]
+
+
 def test_migrate_repos_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

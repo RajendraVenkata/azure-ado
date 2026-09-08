@@ -255,6 +255,33 @@ def test_migrate_work_items_resolves_identity_even_when_already_complete(tmp_pat
     assert identity_map.resolved == {"alice@x.com": "alice@y.com"}
 
 
+def test_migrate_work_items_recreates_item_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_work_items(
+        "SourceProject",
+        [WorkItem(id="1", work_item_type="Bug", revisions=[{"Title": "Crash"}])],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({})
+
+    migrate_work_items(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+    first_destination_id = state.get_destination_id("work_items", source_id="1")
+    dest._destination_work_items.clear()
+
+    section = migrate_work_items(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    new_destination_id = state.get_destination_id("work_items", source_id="1")
+    assert new_destination_id != first_destination_id
+    dest_item = dest.get_work_item("DestProject", new_destination_id)
+    assert dest_item.revisions == [{"Title": "Crash"}]
+    assert section.items == ["1"]
+
+
 def test_migrate_work_items_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

@@ -111,3 +111,29 @@ def test_migrate_service_connections_rerun_makes_no_additional_mutating_calls(
 
     assert len(dest.mutation_log) == calls_after_first_run
     assert section.items == ["MyGitHubConn (GitHub)"]
+
+
+def test_migrate_service_connections_recreates_connection_deleted_from_destination(
+    tmp_path,
+):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_service_connections(
+        "SourceProject",
+        [
+            ServiceConnection(
+                id="sc-1", name="MyGitHubConn", connection_type="GitHub", config={}
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_service_connections(source, dest, "SourceProject", "DestProject", state)
+    dest._service_connections["DestProject"] = []
+
+    section = migrate_service_connections(
+        source, dest, "SourceProject", "DestProject", state
+    )
+
+    assert len(dest.list_service_connections("DestProject")) == 1
+    assert section.items == ["MyGitHubConn (GitHub)"]

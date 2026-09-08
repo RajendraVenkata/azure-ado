@@ -18,7 +18,10 @@ def migrate_area_paths(
 
     items = []
     for path in source_paths:
-        if not state.is_complete(AREA_ARTIFACT_TYPE, source_id=path):
+        recorded_id = state.get_destination_id(AREA_ARTIFACT_TYPE, source_id=path)
+        already_exists = recorded_id is not None and recorded_id in existing_dest_paths
+
+        if not already_exists:
             if path in existing_dest_paths:
                 destination_id = path
             else:
@@ -52,7 +55,12 @@ def migrate_iteration_paths(
 
     items = []
     for iteration in source_paths:
-        if not state.is_complete(ITERATION_ARTIFACT_TYPE, source_id=iteration.path):
+        recorded_id = state.get_destination_id(
+            ITERATION_ARTIFACT_TYPE, source_id=iteration.path
+        )
+        already_exists = recorded_id is not None and recorded_id in existing_dest_paths
+
+        if not already_exists:
             if iteration.path in existing_dest_paths:
                 destination_id = iteration.path
             else:

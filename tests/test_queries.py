@@ -70,6 +70,32 @@ def test_migrate_queries_rerun_makes_no_additional_mutating_calls(tmp_path):
     assert section.items == ["My Active Bugs"]
 
 
+def test_migrate_queries_recreates_query_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_queries(
+        "SourceProject",
+        [
+            Query(
+                id="q-1",
+                name="My Active Bugs",
+                folder_path="Shared Queries",
+                wiql="SELECT [System.Id] FROM WorkItems",
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_queries(source, dest, "SourceProject", "DestProject", state)
+    dest._queries["DestProject"] = []
+
+    section = migrate_queries(source, dest, "SourceProject", "DestProject", state)
+
+    dest_queries = dest.list_queries("DestProject")
+    assert len(dest_queries) == 1
+    assert section.items == ["My Active Bugs"]
+
+
 def test_migrate_queries_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

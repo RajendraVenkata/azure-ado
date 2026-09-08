@@ -121,6 +121,30 @@ def test_migrate_test_plans_rerun_makes_no_additional_mutating_calls(tmp_path):
     assert section.items == ["Release 1 Test Plan"]
 
 
+def test_migrate_test_plans_recreates_plan_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_test_plans(
+        "SourceProject",
+        [
+            TestPlan(
+                id="tp-1",
+                name="Release 1 Test Plan",
+                suites=[TestSuite(id="ts-1", name="Smoke Tests")],
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    migrate_test_plans(source, dest, "SourceProject", "DestProject", state)
+    dest._test_plans["DestProject"] = []
+
+    section = migrate_test_plans(source, dest, "SourceProject", "DestProject", state)
+
+    assert len(dest.list_test_plans("DestProject")) == 1
+    assert section.items == ["Release 1 Test Plan"]
+
+
 def test_migrate_test_plans_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

@@ -88,6 +88,29 @@ def test_migrate_security_groups_rerun_makes_no_additional_mutating_calls(tmp_pa
     assert section.items == ["Release Managers (0 members)"]
 
 
+def test_migrate_security_groups_recreates_group_deleted_from_destination(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_security_groups(
+        "SourceProject",
+        [SecurityGroup(id="sg-1", name="Release Managers", member_identities=[])],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({})
+
+    migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+    dest._security_groups["DestProject"] = []
+
+    section = migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    assert len(dest.list_security_groups("DestProject")) == 1
+    assert section.items == ["Release Managers (0 members)"]
+
+
 def test_migrate_security_groups_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

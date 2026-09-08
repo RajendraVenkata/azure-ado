@@ -15,6 +15,7 @@ def migrate_work_items(
     identity_map: IdentityMap,
 ) -> ReportSection:
     items = []
+    existing_dest_work_item_ids = dest_client.list_work_item_ids(dest_project)
 
     for work_item in source_client.list_work_items(source_project):
         resolved_revisions = [
@@ -22,7 +23,12 @@ def migrate_work_items(
             for fields in work_item.revisions
         ]
 
-        if not state.is_complete(ARTIFACT_TYPE, source_id=work_item.id):
+        destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=work_item.id)
+        already_exists = (
+            destination_id is not None and destination_id in existing_dest_work_item_ids
+        )
+
+        if not already_exists:
             first_fields, *later_revisions = resolved_revisions
             destination_id = dest_client.create_work_item(
                 dest_project, work_item.work_item_type, first_fields
