@@ -6,6 +6,7 @@ from ado_migrate.orchestrator import run_migration
 from ado_migrate.state import StateStore
 
 EXPECTED_SECTION_TITLES = {
+    "Users",
     "Area Paths",
     "Iteration Paths",
     "Repositories",
@@ -90,20 +91,11 @@ def test_run_migration_continues_past_persistent_type_failure(tmp_path):
     assert work_items_section.items == ["1"]
 
 
-def test_run_migration_reports_users_referenced_by_migrated_work_items(tmp_path):
+def test_run_migration_reports_users_from_project_permissions(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=False)
     git_transport = InMemoryFakeGitTransport(dry_run=False)
-    source.seed_work_items(
-        "SourceProject",
-        [
-            WorkItem(
-                id="1",
-                work_item_type="Bug",
-                revisions=[{"Title": "Crash", "AssignedTo": "alice@x.com"}],
-            )
-        ],
-    )
+    source.seed_project_users("SourceProject", ["alice@x.com", "bob@x.com"])
     state = StateStore(str(tmp_path / "state.json"))
     identity_map = IdentityMap({"alice@x.com": "alice@y.com"})
 
@@ -115,40 +107,28 @@ def test_run_migration_reports_users_referenced_by_migrated_work_items(tmp_path)
         "DestProject",
         state,
         identity_map,
-        only={"work_items"},
+        only={"users"},
     )
 
     users_section = next(s for s in report.sections if s.title == "Users")
-    assert users_section.items == ["alice@x.com -> alice@y.com"]
+    assert users_section.items == [
+        "alice@x.com -> alice@y.com",
+        "bob@x.com -> UNMAPPED (no destination identity configured)",
+    ]
 
 
-def test_run_migration_reports_users_for_already_completed_work_items(tmp_path):
+def test_run_migration_reports_users_even_when_not_referenced_by_work_items(
+    tmp_path,
+):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=False)
     git_transport = InMemoryFakeGitTransport(dry_run=False)
-    source.seed_work_items(
-        "SourceProject",
-        [
-            WorkItem(
-                id="1",
-                work_item_type="Bug",
-                revisions=[{"Title": "Crash", "AssignedTo": "alice@x.com"}],
-            )
-        ],
-    )
+    source.seed_project_users("SourceProject", ["alice@x.com"])
     state = StateStore(str(tmp_path / "state.json"))
-    state.mark_complete("work_items", source_id="1", destination_id="1")
     identity_map = IdentityMap({"alice@x.com": "alice@y.com"})
 
     report = run_migration(
-        source,
-        dest,
-        git_transport,
-        "SourceProject",
-        "DestProject",
-        state,
-        identity_map,
-        only={"work_items"},
+        source, dest, git_transport, "SourceProject", "DestProject", state, identity_map
     )
 
     users_section = next(s for s in report.sections if s.title == "Users")

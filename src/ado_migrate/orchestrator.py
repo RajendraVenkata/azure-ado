@@ -15,12 +15,14 @@ from ado_migrate.security_groups import migrate_security_groups
 from ado_migrate.service_connections import migrate_service_connections
 from ado_migrate.state import StateStore
 from ado_migrate.test_plans import migrate_test_plans
+from ado_migrate.users import migrate_users
 from ado_migrate.wikis import migrate_wikis
 from ado_migrate.work_items import migrate_work_items
 
 logger = logging.getLogger(__name__)
 
 ARTIFACT_TYPES_IN_ORDER = [
+    "users",
     "area_paths",
     "iteration_paths",
     "repos",
@@ -77,9 +79,6 @@ def run_migration(
             state.record_failure(artifact_type, str(e))
             failures.append(f"{artifact_type}: {e}")
 
-    if identity_map.resolved:
-        sections.append(ReportSection(title="Users", items=identity_map.report_items()))
-
     if failures:
         sections.append(ReportSection(title="Failures", items=failures))
 
@@ -96,6 +95,8 @@ def _run_step(
     state: StateStore,
     identity_map: IdentityMap,
 ):
+    if artifact_type == "users":
+        return migrate_users(source_client, source_project, identity_map)
     if artifact_type == "area_paths":
         return migrate_area_paths(
             source_client, dest_client, source_project, dest_project, state

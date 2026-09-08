@@ -230,6 +230,30 @@ def test_migrate_work_items_rerun_makes_no_additional_mutating_calls(tmp_path):
     assert section.items == ["1"]
 
 
+def test_migrate_work_items_resolves_identity_even_when_already_complete(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_work_items(
+        "SourceProject",
+        [
+            WorkItem(
+                id="1",
+                work_item_type="Bug",
+                revisions=[{"Title": "Crash", "AssignedTo": "alice@x.com"}],
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    state.mark_complete("work_items", source_id="1", destination_id="wi-1")
+    identity_map = IdentityMap({"alice@x.com": "alice@y.com"})
+
+    migrate_work_items(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    assert identity_map.resolved == {"alice@x.com": "alice@y.com"}
+
+
 def test_migrate_work_items_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

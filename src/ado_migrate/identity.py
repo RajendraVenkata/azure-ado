@@ -20,14 +20,17 @@ class IdentityMap:
         return UNMAPPED_PLACEHOLDER
 
     def report_items(self) -> list[str]:
-        """One line per distinct identity actually referenced during this
-        run (deduplicated), for the migration report's "Users" section."""
+        """One line per distinct identity resolved so far (deduplicated)."""
         return [
-            f"{source} -> {destination}"
-            if destination != UNMAPPED_PLACEHOLDER
-            else f"{source} -> UNMAPPED (no destination identity configured)"
+            format_resolution(source, destination)
             for source, destination in sorted(self.resolved.items())
         ]
+
+
+def format_resolution(source: str, destination: str) -> str:
+    if destination == UNMAPPED_PLACEHOLDER:
+        return f"{source} -> UNMAPPED (no destination identity configured)"
+    return f"{source} -> {destination}"
 
 
 def load_identity_map(path: str) -> IdentityMap:
