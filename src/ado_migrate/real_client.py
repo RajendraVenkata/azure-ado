@@ -290,7 +290,7 @@ class RealAdoClient(AdoClient):
         self, project: str, work_item_type: str, fields: dict[str, Any]
     ) -> Optional[str]:
         def do_create() -> str:
-            document = _fields_to_patch_document(fields)
+            document = _fields_to_patch_document(fields, project)
             created = self._call(
                 self._wit_client.create_work_item, document, project, work_item_type
             )
@@ -302,7 +302,7 @@ class RealAdoClient(AdoClient):
         self, project: str, destination_id: str, fields: dict[str, Any]
     ) -> None:
         def do_update() -> None:
-            document = _fields_to_patch_document(fields)
+            document = _fields_to_patch_document(fields, project)
             self._call(
                 self._wit_client.update_work_item,
                 document,
@@ -387,7 +387,7 @@ class RealAdoClient(AdoClient):
         revisions_raw = self._call(
             self._wit_client.get_revisions, int(destination_id), project=project
         )
-        revisions = [_friendlify_fields(r.fields) for r in revisions_raw]
+        revisions = [_friendlify_fields(r.fields, project) for r in revisions_raw]
 
         current = self._call(
             self._wit_client.get_work_item,
@@ -1052,20 +1052,28 @@ def _extract_status_code(exc: Exception) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
-def _fields_to_patch_document(fields: dict[str, Any]) -> list[JsonPatchOperation]:
-    return [
-        JsonPatchOperation(
-            op="add", path=f"/fields/{_FIELD_REFERENCE_NAMES.get(key, key)}", value=value
+def _fields_to_patch_document(
+    fields: dict[str, Any], project: str
+) -> list[JsonPatchOperation]:
+    operations = []
+    for key, value in fields.items():
+        if key in ("AreaPath", "IterationPath"):
+            value = _full_path(value, project)
+        operations.append(
+            JsonPatchOperation(
+                op="add", path=f"/fields/{_FIELD_REFERENCE_NAMES.get(key, key)}", value=value
+            )
         )
-        for key, value in fields.items()
-    ]
+    return operations
 
 
-def _friendlify_fields(fields: Optional[dict[str, Any]]) -> dict[str, Any]:
+def _friendlify_fields(fields: Optional[dict[str, Any]], project: str) -> dict[str, Any]:
     result = {}
     for reference_name, value in (fields or {}).items():
         if reference_name == "System.AssignedTo":
             value = _identity_ref_to_string(value)
+        elif reference_name in ("System.AreaPath", "System.IterationPath"):
+            value = _strip_project_prefix(value, project)
         result[_FRIENDLY_FIELD_NAMES.get(reference_name, reference_name)] = value
     return result
 
