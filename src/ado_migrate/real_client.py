@@ -508,6 +508,34 @@ class RealAdoClient(AdoClient):
 
         return identities
 
+    def add_project_member(self, project: str, identity: str) -> None:
+        def do_add() -> None:
+            project_id = self._get_project_id(project)
+            project_descriptor = self._call(
+                self._graph_client.get_descriptor, project_id
+            ).value
+            groups = self._call(
+                self._graph_client.list_groups, scope_descriptor=project_descriptor
+            )
+            contributors = next(
+                (g for g in (groups.graph_groups or []) if g.display_name == "Contributors"),
+                None,
+            )
+            if contributors is None:
+                raise ValueError(f"'Contributors' group not found in project '{project}'")
+
+            member_descriptor = self._resolve_user_descriptor(identity)
+            if member_descriptor is None:
+                raise ValueError(
+                    f"Could not resolve identity '{identity}' in the destination organization"
+                )
+
+            self._call(
+                self._graph_client.add_membership, member_descriptor, contributors.descriptor
+            )
+
+        self._mutate(f"add project member '{identity}' to {project}", do_add)
+
     def list_wikis(self, project: str) -> list[Repo]:
         wikis = self._call(self._wiki_client.get_all_wikis, project=project)
         return [Repo(id=w.id, name=w.name, clone_url=w.remote_url) for w in (wikis or [])]

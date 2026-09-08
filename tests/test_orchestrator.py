@@ -116,6 +116,7 @@ def test_run_migration_reports_users_from_project_permissions(tmp_path):
         "alice@x.com -> alice@y.com",
         "bob@x.com -> UNMAPPED (no destination identity configured)",
     ]
+    assert dest.list_project_members("DestProject") == ["alice@y.com"]
 
 
 def test_run_migration_reports_users_even_when_not_referenced_by_work_items(
@@ -134,6 +135,7 @@ def test_run_migration_reports_users_even_when_not_referenced_by_work_items(
 
     users_section = next(s for s in report.sections if s.title == "Users")
     assert users_section.items == ["alice@x.com -> alice@y.com"]
+    assert dest.list_project_members("DestProject") == ["alice@y.com"]
 
 
 def test_run_migration_transient_failure_does_not_surface_as_a_failure(tmp_path):

@@ -98,7 +98,9 @@ def _run_step(
     identity_map: IdentityMap,
 ):
     if artifact_type == "users":
-        return migrate_users(source_client, source_project, identity_map)
+        return migrate_users(
+            source_client, dest_client, source_project, dest_project, state, identity_map
+        )
     if artifact_type == "area_paths":
         return migrate_area_paths(
             source_client, dest_client, source_project, dest_project, state
