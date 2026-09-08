@@ -19,6 +19,7 @@ from ado_migrate.client import (
     TestSuite,
     WorkItem,
 )
+from ado_migrate.config import load_config, state_dir_parts
 from ado_migrate.git_transport import InMemoryFakeGitTransport
 from ado_migrate.state import StateStore
 
@@ -176,6 +177,9 @@ def _seed_source(source):
 
 def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
     config_path, identity_map_path = _write_config(tmp_path, monkeypatch)
+    state_json_path = tmp_path.joinpath(
+        "state", *state_dir_parts(load_config(str(config_path))), "state.json"
+    )
 
     source = InMemoryFakeAdoClient(dry_run=False)
     _seed_source(source)
@@ -209,7 +213,7 @@ def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
 
     assert not any(record.executed for record in dest_dry.mutation_log)
     assert not any(record.executed for record in git_dry.mutation_log)
-    dry_state = StateStore(str(tmp_path / "state.json"))
+    dry_state = StateStore(str(state_json_path))
     dry_state.load()
     assert dry_state.list_destination_ids("area_paths") == {}
 
@@ -222,7 +226,7 @@ def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
     real_exit = run(real_args, source, dest, git_transport)
 
     assert real_exit == 0
-    state = StateStore(str(tmp_path / "state.json"))
+    state = StateStore(str(state_json_path))
     state.load()
 
     for artifact_type, source_id in [
@@ -267,11 +271,11 @@ def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
     # --- rerun: idempotent, no duplicates ---
     dest_mutations_before = len(dest.mutation_log)
     git_mutations_before = len(git_transport.mutation_log)
-    state_bytes_before = (tmp_path / "state.json").read_bytes()
+    state_bytes_before = state_json_path.read_bytes()
 
     rerun_exit = run(real_args, source, dest, git_transport)
 
     assert rerun_exit == 0
     assert len(dest.mutation_log) == dest_mutations_before
     assert len(git_transport.mutation_log) == git_mutations_before
-    assert (tmp_path / "state.json").read_bytes() == state_bytes_before
+    assert state_json_path.read_bytes() == state_bytes_before

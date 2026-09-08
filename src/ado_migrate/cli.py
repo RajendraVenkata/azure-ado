@@ -5,7 +5,7 @@ import sys
 from argparse import Namespace
 
 from ado_migrate.client import AdoClient
-from ado_migrate.config import load_config
+from ado_migrate.config import load_config, state_dir_parts
 from ado_migrate.git_transport import GitTransport
 from ado_migrate.identity import IdentityMap, load_identity_map
 from ado_migrate.orchestrator import run_migration
@@ -37,7 +37,9 @@ def run(
     only = set(args.only.split(",")) if args.only else None
 
     config_dir = os.path.dirname(os.path.abspath(args.config))
-    state = StateStore(os.path.join(config_dir, "state.json"))
+    state_dir = os.path.join(config_dir, "state", *state_dir_parts(config))
+    os.makedirs(state_dir, exist_ok=True)
+    state = StateStore(os.path.join(state_dir, "state.json"))
     state.load()
 
     report_data = run_migration(

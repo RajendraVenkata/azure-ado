@@ -1,5 +1,6 @@
 from ado_migrate.cli import parse_args, run
 from ado_migrate.client import InMemoryFakeAdoClient, Repo
+from ado_migrate.config import load_config, state_dir_parts
 from ado_migrate.git_transport import InMemoryFakeGitTransport
 
 
@@ -48,7 +49,8 @@ def test_real_run_twice_is_idempotent(tmp_path, monkeypatch):
     args = parse_args(["--config", str(config_path)])
     first_exit = run(args, source_client, dest_client, git_transport)
 
-    state_path = tmp_path / "state.json"
+    config = load_config(str(config_path))
+    state_path = tmp_path.joinpath("state", *state_dir_parts(config), "state.json")
     first_state = state_path.read_text()
 
     second_exit = run(args, source_client, dest_client, git_transport)

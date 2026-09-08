@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass
 
 import yaml
@@ -44,3 +45,24 @@ def _load_org_project(raw: dict) -> OrgProjectConfig:
         project=raw["project"],
         pat=pat,
     )
+
+
+def state_dir_parts(config: MigrationConfig) -> list[str]:
+    """Path segments uniquely identifying this source/destination pair, so
+    state from different migration pairs never collides on disk even when
+    they share a config directory."""
+    return [
+        _path_segment(_org_name(config.source.organization_url)),
+        _path_segment(config.source.project),
+        _path_segment(_org_name(config.destination.organization_url)),
+        _path_segment(config.destination.project),
+    ]
+
+
+def _org_name(organization_url: str) -> str:
+    return organization_url.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _path_segment(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
+    return sanitized or "unknown"
