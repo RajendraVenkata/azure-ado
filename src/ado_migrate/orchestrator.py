@@ -14,6 +14,7 @@ from ado_migrate.repos import migrate_repos
 from ado_migrate.security_groups import migrate_security_groups
 from ado_migrate.service_connections import migrate_service_connections
 from ado_migrate.state import StateStore
+from ado_migrate.teams import migrate_teams
 from ado_migrate.test_plans import migrate_test_plans
 from ado_migrate.users import migrate_users
 from ado_migrate.wikis import migrate_wikis
@@ -25,6 +26,7 @@ ARTIFACT_TYPES_IN_ORDER = [
     "users",
     "area_paths",
     "iteration_paths",
+    "teams",
     "repos",
     "wikis",
     "service_connections",
@@ -103,6 +105,10 @@ def _run_step(
         )
     if artifact_type == "iteration_paths":
         return migrate_iteration_paths(
+            source_client, dest_client, source_project, dest_project, state
+        )
+    if artifact_type == "teams":
+        return migrate_teams(
             source_client, dest_client, source_project, dest_project, state
         )
     if artifact_type == "repos":

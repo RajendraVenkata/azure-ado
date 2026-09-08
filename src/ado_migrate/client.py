@@ -104,6 +104,18 @@ class Pipeline:
     service_connection_ids: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class Team:
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TeamAreaPath:
+    path: str
+    include_children: bool = False
+
+
 @dataclass
 class WorkItem:
     id: str
@@ -150,6 +162,10 @@ class InMemoryFakeAdoClient(AdoClient):
         self._artifact_feeds: dict[str, list[ArtifactFeed]] = {}
         self._used_extensions: dict[str, list[Extension]] = {}
         self._project_users: dict[str, list[str]] = {}
+        self._teams: dict[str, list[Team]] = {}
+        self._next_team_id = 1
+        self._team_iterations: dict[tuple[str, str], list[str]] = {}
+        self._team_area_paths: dict[tuple[str, str], list[TeamAreaPath]] = {}
 
     def create_placeholder(self, name: str) -> Optional[str]:
         def do_create() -> str:
@@ -475,3 +491,49 @@ class InMemoryFakeAdoClient(AdoClient):
 
     def list_used_extensions(self, project: str) -> list[Extension]:
         return list(self._used_extensions.get(project, []))
+
+    def seed_teams(self, project: str, teams: list[Team]) -> None:
+        self._teams.setdefault(project, []).extend(teams)
+
+    def list_teams(self, project: str) -> list[Team]:
+        return list(self._teams.get(project, []))
+
+    def create_team(self, project: str, name: str) -> Optional[Team]:
+        def do_create() -> Team:
+            destination_id = f"team-{self._next_team_id}"
+            self._next_team_id += 1
+            team = Team(id=destination_id, name=name)
+            self._teams.setdefault(project, []).append(team)
+            return team
+
+        return self._mutate(f"create team '{name}' in {project}", do_create)
+
+    def seed_team_iterations(self, project: str, team: str, paths: list[str]) -> None:
+        self._team_iterations.setdefault((project, team), []).extend(paths)
+
+    def list_team_iterations(self, project: str, team: str) -> list[str]:
+        return list(self._team_iterations.get((project, team), []))
+
+    def add_team_iteration(self, project: str, team: str, path: str) -> None:
+        def do_add() -> None:
+            bucket = self._team_iterations.setdefault((project, team), [])
+            if path not in bucket:
+                bucket.append(path)
+
+        self._mutate(f"add iteration '{path}' to team '{team}' in {project}", do_add)
+
+    def seed_team_area_paths(
+        self, project: str, team: str, area_paths: list[TeamAreaPath]
+    ) -> None:
+        self._team_area_paths.setdefault((project, team), []).extend(area_paths)
+
+    def list_team_area_paths(self, project: str, team: str) -> list[TeamAreaPath]:
+        return list(self._team_area_paths.get((project, team), []))
+
+    def set_team_area_paths(
+        self, project: str, team: str, area_paths: list[TeamAreaPath]
+    ) -> None:
+        def do_set() -> None:
+            self._team_area_paths[(project, team)] = list(area_paths)
+
+        self._mutate(f"set area paths for team '{team}' in {project}", do_set)

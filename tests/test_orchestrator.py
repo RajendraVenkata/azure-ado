@@ -9,6 +9,7 @@ EXPECTED_SECTION_TITLES = {
     "Users",
     "Area Paths",
     "Iteration Paths",
+    "Teams",
     "Repositories",
     "Wikis",
     "Service Connections",

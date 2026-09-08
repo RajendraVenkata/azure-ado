@@ -13,6 +13,8 @@ from ado_migrate.client import (
     Repo,
     SecurityGroup,
     ServiceConnection,
+    Team,
+    TeamAreaPath,
     TestPlan,
     TestSuite,
     WorkItem,
@@ -165,6 +167,11 @@ def _seed_source(source):
     source.seed_used_extensions(
         "MyProject", [Extension(id="ext-1", name="SonarQube")]
     )
+    source.seed_teams("MyProject", [Team(id="team-1", name="Alpha Team")])
+    source.seed_team_iterations("MyProject", "Alpha Team", ["Sprint 1"])
+    source.seed_team_area_paths(
+        "MyProject", "Alpha Team", [TeamAreaPath(path="Team A", include_children=True)]
+    )
 
 
 def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
@@ -196,6 +203,7 @@ def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
         "Team Overview (1 widgets)",
         "internal-npm",
         "SonarQube",
+        "Alpha Team (1 iteration(s), 1 area path(s))",
     ]:
         assert expected in report_html, f"{expected!r} missing from dry-run report"
 
@@ -229,9 +237,15 @@ def test_dry_run_then_real_run_then_rerun_end_to_end(tmp_path, monkeypatch):
         ("pipelines", "pl-1"),
         ("test_plans", "tp-1"),
         ("security_groups", "sg-1"),
+        ("teams", "team-1"),
     ]:
         destination_id = state.get_destination_id(artifact_type, source_id=source_id)
         assert destination_id, f"{artifact_type}/{source_id} was not migrated"
+
+    assert dest.list_team_iterations("MyProject", "Alpha Team") == ["Sprint 1"]
+    assert dest.list_team_area_paths("MyProject", "Alpha Team") == [
+        TeamAreaPath(path="Team A", include_children=True)
+    ]
 
     dest_work_item_1 = dest.get_work_item(
         "MyProject", state.get_destination_id("work_items", source_id="1")

@@ -38,6 +38,11 @@ from azure.devops.v7_1.test_plan.models import (
 )
 from azure.devops.v7_1.test_plan.models import WorkItem as TestPlanWorkItemRef
 from azure.devops.v7_1.wiki.models import WikiCreateParametersV2
+from azure.devops.v7_1.work.models import (
+    TeamFieldValue,
+    TeamFieldValuesPatch,
+    TeamSettingsIteration,
+)
 from azure.devops.v7_1.work_item_tracking.models import (
     JsonPatchOperation,
     QueryHierarchyItem,
@@ -45,6 +50,7 @@ from azure.devops.v7_1.work_item_tracking.models import (
     Wiql,
     WorkItemClassificationNode,
 )
+from azure.devops.v7_1.core.models import WebApiTeam
 from msrest.authentication import BasicAuthentication
 
 from ado_migrate.client import (
@@ -61,6 +67,8 @@ from ado_migrate.client import (
     Repo,
     SecurityGroup,
     ServiceConnection,
+    Team,
+    TeamAreaPath,
     TestPlan,
     TestSuite,
     WorkItem,
@@ -87,6 +95,7 @@ _WIKI_CLIENT_PATH = "azure.devops.v7_1.wiki.wiki_client.WikiClient"
 _SERVICE_ENDPOINT_CLIENT_PATH = (
     "azure.devops.v7_1.service_endpoint.service_endpoint_client.ServiceEndpointClient"
 )
+_WORK_CLIENT_PATH = "azure.devops.v7_1.work.work_client.WorkClient"
 _TEST_PLAN_CLIENT_PATH = "azure.devops.v7_1.test_plan.test_plan_client.TestPlanClient"
 _RELEASE_CLIENT_PATH = "azure.devops.v7_1.release.release_client.ReleaseClient"
 _DASHBOARD_CLIENT_PATH = "azure.devops.v7_1.dashboard.dashboard_client.DashboardClient"
@@ -125,6 +134,7 @@ class RealAdoClient(AdoClient):
         self._graph_client = connection.get_client(_GRAPH_CLIENT_PATH)
         self._wiki_client = connection.get_client(_WIKI_CLIENT_PATH)
         self._service_endpoint_client = connection.get_client(_SERVICE_ENDPOINT_CLIENT_PATH)
+        self._work_client = connection.get_client(_WORK_CLIENT_PATH)
         self._test_plan_client = connection.get_client(_TEST_PLAN_CLIENT_PATH)
         self._release_client = connection.get_client(_RELEASE_CLIENT_PATH)
         self._dashboard_client = connection.get_client(_DASHBOARD_CLIENT_PATH)
@@ -190,6 +200,76 @@ class RealAdoClient(AdoClient):
             return path
 
         return self._mutate(f"create iteration path '{path}' in {project}", do_create)
+
+    def list_teams(self, project: str) -> list[Team]:
+        project_id = self._get_project_id(project)
+        teams = self._call(self._core_client.get_teams, project_id)
+        return [Team(id=t.id, name=t.name) for t in teams or []]
+
+    def create_team(self, project: str, name: str) -> Optional[Team]:
+        def do_create() -> Team:
+            project_id = self._get_project_id(project)
+            created = self._call(
+                self._core_client.create_team, WebApiTeam(name=name), project_id
+            )
+            return Team(id=created.id, name=created.name)
+
+        return self._mutate(f"create team '{name}' in {project}", do_create)
+
+    def list_team_iterations(self, project: str, team: str) -> list[str]:
+        team_context = TeamContext(project=project, team=team)
+        iterations = self._call(self._work_client.get_team_iterations, team_context)
+        return [_strip_project_prefix(it.path, project) for it in iterations or []]
+
+    def add_team_iteration(self, project: str, team: str, path: str) -> None:
+        def do_add() -> None:
+            node = self._call(
+                self._wit_client.get_classification_node,
+                project,
+                "iterations",
+                path=path.replace("/", "\\"),
+            )
+            team_context = TeamContext(project=project, team=team)
+            self._call(
+                self._work_client.post_team_iteration,
+                TeamSettingsIteration(id=node.identifier),
+                team_context,
+            )
+
+        self._mutate(f"add iteration '{path}' to team '{team}' in {project}", do_add)
+
+    def list_team_area_paths(self, project: str, team: str) -> list[TeamAreaPath]:
+        team_context = TeamContext(project=project, team=team)
+        field_values = self._call(self._work_client.get_team_field_values, team_context)
+        return [
+            TeamAreaPath(
+                path=_strip_project_prefix(v.value, project),
+                include_children=bool(v.include_children),
+            )
+            for v in (field_values.values if field_values else None) or []
+        ]
+
+    def set_team_area_paths(
+        self, project: str, team: str, area_paths: list[TeamAreaPath]
+    ) -> None:
+        def do_set() -> None:
+            team_context = TeamContext(project=project, team=team)
+            default_value = (
+                _full_path(area_paths[0].path, project) if area_paths else project
+            )
+            patch = TeamFieldValuesPatch(
+                default_value=default_value,
+                values=[
+                    TeamFieldValue(
+                        value=_full_path(area_path.path, project),
+                        include_children=area_path.include_children,
+                    )
+                    for area_path in area_paths
+                ],
+            )
+            self._call(self._work_client.update_team_field_values, patch, team_context)
+
+        self._mutate(f"set area paths for team '{team}' in {project}", do_set)
 
     def list_repos(self, project: str) -> list[Repo]:
         repos = self._call(self._git_client.get_repositories, project)
@@ -898,6 +978,25 @@ class RealAdoClient(AdoClient):
 def _split_leaf(path: str) -> tuple[str, str]:
     segments = path.split("/")
     return segments[-1], "\\".join(segments[:-1])
+
+
+def _strip_project_prefix(full_path: str, project: str) -> str:
+    """Team iteration/area path values come back from the API as the full
+    backslash-separated path (e.g. "MyProject\\Team A"); reduce that to the
+    project-relative "/"-separated form used elsewhere in this codebase."""
+    normalized = (full_path or "").strip("\\").replace("\\", "/")
+    prefix = f"{project}/"
+    if normalized.startswith(prefix):
+        return normalized[len(prefix) :]
+    if normalized == project:
+        return ""
+    return normalized
+
+
+def _full_path(relative_path: str, project: str) -> str:
+    if not relative_path:
+        return project
+    return f"{project}\\{relative_path.replace('/', chr(92))}"
 
 
 def _flatten_paths(node: WorkItemClassificationNode, prefix: str = "") -> list[str]:
