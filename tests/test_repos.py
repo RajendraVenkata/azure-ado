@@ -84,6 +84,44 @@ def test_migrate_repos_recreates_repo_deleted_from_destination(tmp_path):
     assert section.items == ["my-repo"]
 
 
+def test_migrate_repos_skips_push_for_untracked_name_collision(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    git_transport = InMemoryFakeGitTransport(dry_run=False)
+    source.seed_repos(
+        "SourceProject",
+        [
+            Repo(id="repo-1", name="RG_DnA", clone_url="https://source/RG_DnA.git"),
+            Repo(id="repo-2", name="other-repo", clone_url="https://source/other-repo.git"),
+        ],
+    )
+    # RG_DnA already exists in the destination, but not via this tool (no
+    # state record for it) — simulates a repo created before the migration
+    # ran, which previously made create_repo() fail with a duplicate-name
+    # error and aborted the whole step before other-repo was processed.
+    dest.seed_repos(
+        "DestProject",
+        [Repo(id="existing-repo", name="RG_DnA", clone_url="https://dest/RG_DnA.git")],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    section = migrate_repos(
+        source, dest, git_transport, "SourceProject", "DestProject", state
+    )
+
+    dest_repos = {r.name: r for r in dest.list_repos("DestProject")}
+    assert set(dest_repos) == {"RG_DnA", "other-repo"}
+    assert git_transport.pushed == [
+        ("https://source/other-repo.git", dest_repos["other-repo"].clone_url)
+    ]
+    assert state.get_destination_id("repos", source_id="repo-1") == "existing-repo"
+    assert state.get_destination_id("repos", source_id="repo-2") == dest_repos["other-repo"].id
+    assert section.items == [
+        "RG_DnA (already exists in destination, not pushed)",
+        "other-repo",
+    ]
+
+
 def test_migrate_repos_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

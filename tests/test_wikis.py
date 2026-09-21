@@ -75,6 +75,47 @@ def test_migrate_wikis_recreates_wiki_deleted_from_destination(tmp_path):
     assert section.items == ["SourceProject.wiki"]
 
 
+def test_migrate_wikis_skips_push_for_untracked_name_collision(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    git_transport = InMemoryFakeGitTransport(dry_run=False)
+    source.seed_wikis(
+        "SourceProject",
+        [
+            Repo(
+                id="wiki-1",
+                name="SourceProject.wiki",
+                clone_url="https://source/SourceProject.wiki",
+            )
+        ],
+    )
+    # The wiki already exists in the destination, but not via this tool (no
+    # state record for it) — simulates a wiki created before the migration
+    # ran.
+    dest.seed_wikis(
+        "DestProject",
+        [
+            Repo(
+                id="existing-wiki",
+                name="SourceProject.wiki",
+                clone_url="https://dest/SourceProject.wiki",
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+
+    section = migrate_wikis(
+        source, dest, git_transport, "SourceProject", "DestProject", state
+    )
+
+    assert len(dest.list_wikis("DestProject")) == 1
+    assert git_transport.pushed == []
+    assert state.get_destination_id("wikis", source_id="wiki-1") == "existing-wiki"
+    assert section.items == [
+        "SourceProject.wiki (already exists in destination, not pushed)"
+    ]
+
+
 def test_migrate_wikis_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)
