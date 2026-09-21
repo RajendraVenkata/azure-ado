@@ -543,6 +543,15 @@ class RealAdoClient(AdoClient):
 
         self._mutate(f"add project member '{identity}' to {project}", do_add)
 
+    def list_project_members(self, project: str) -> list[str]:
+        """Current members of `project` — used by migrate_users() to check
+        which identities are already present in the destination before
+        calling add_project_member(). Same underlying query as
+        list_project_users(); the two are split so a caller can query a
+        source project's permission list and a destination project's
+        membership independently."""
+        return self.list_project_users(project)
+
     def list_wikis(self, project: str) -> list[Repo]:
         wikis = self._call(self._wiki_client.get_all_wikis, project=project)
         return [Repo(id=w.id, name=w.name, clone_url=w.remote_url) for w in (wikis or [])]
