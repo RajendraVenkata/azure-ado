@@ -37,12 +37,25 @@ def test_migrate_teams_reuses_existing_destination_team(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=False)
     source.seed_teams("SourceProject", [Team(id="team-1", name="Alpha Team")])
+    source.seed_team_area_paths(
+        "SourceProject",
+        "Alpha Team",
+        [TeamAreaPath(path="Team A", include_children=True)],
+    )
     dest.seed_teams("DestProject", [Team(id="existing-team", name="Alpha Team")])
+    dest.seed_team_area_paths(
+        "DestProject",
+        "Alpha Team",
+        [TeamAreaPath(path="Existing Area", include_children=False)],
+    )
     state = StateStore(str(tmp_path / "state.json"))
 
     migrate_teams(source, dest, "SourceProject", "DestProject", state)
 
     assert len(dest.list_teams("DestProject")) == 1
+    assert dest.list_team_area_paths("DestProject", "Alpha Team") == [
+        TeamAreaPath(path="Existing Area", include_children=False)
+    ]
 
 
 def test_migrate_teams_recreates_team_deleted_from_destination(tmp_path):

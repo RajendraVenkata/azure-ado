@@ -23,13 +23,19 @@ def migrate_teams(
         already_synced = destination_id is not None and destination_id in existing_dest_teams
 
         if not already_synced:
-            if team.name not in existing_dest_teams:
+            pre_existing_team = team.name in existing_dest_teams
+            if not pre_existing_team:
                 dest_client.create_team(dest_project, team.name)
 
             for path in iterations:
                 dest_client.add_team_iteration(dest_project, team.name, path)
 
-            dest_client.set_team_area_paths(dest_project, team.name, area_paths)
+            # A team that already existed in the destination (not created by
+            # this migration) may have its own area path configuration;
+            # set_team_area_paths() fully replaces that configuration, so
+            # only apply it to teams this migration is creating.
+            if not pre_existing_team:
+                dest_client.set_team_area_paths(dest_project, team.name, area_paths)
 
             if not dest_client.dry_run:
                 state.mark_complete(
