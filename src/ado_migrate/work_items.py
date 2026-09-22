@@ -23,14 +23,16 @@ def migrate_work_items(
             _resolve_fields(fields, identity_map, state)
             for fields in work_item.revisions
         ]
+        title = resolved_revisions[-1].get("Title", "") if resolved_revisions else ""
 
         destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=work_item.id)
         already_exists = (
             destination_id is not None and destination_id in existing_dest_work_item_ids
         )
 
-        if not already_exists:
-            title = resolved_revisions[-1].get("Title") if resolved_revisions else None
+        if already_exists:
+            status = f"already migrated -> {destination_id}"
+        else:
             title_match_id = existing_dest_titles.get(title) if title else None
 
             if title_match_id is not None:
@@ -39,34 +41,34 @@ def migrate_work_items(
                 # prior run whose state wasn't persisted — so reuse it
                 # instead of creating a duplicate.
                 destination_id = title_match_id
-                already_exists = True
+                status = f"matches existing destination item {destination_id}, skipped"
                 if not dest_client.dry_run:
                     state.mark_complete(
                         ARTIFACT_TYPE, source_id=work_item.id, destination_id=destination_id
                     )
-
-        if not already_exists:
-            first_fields, *later_revisions = resolved_revisions
-            destination_id = dest_client.create_work_item(
-                dest_project, work_item.work_item_type, first_fields
-            )
-
-            for revision_fields in later_revisions:
-                dest_client.update_work_item_fields(
-                    dest_project, destination_id, revision_fields
+            else:
+                first_fields, *later_revisions = resolved_revisions
+                destination_id = dest_client.create_work_item(
+                    dest_project, work_item.work_item_type, first_fields
                 )
 
-            for attachment in work_item.attachments:
-                dest_client.add_attachment(dest_project, destination_id, attachment)
+                for revision_fields in later_revisions:
+                    dest_client.update_work_item_fields(
+                        dest_project, destination_id, revision_fields
+                    )
 
-            if not dest_client.dry_run:
-                state.mark_complete(
-                    ARTIFACT_TYPE,
-                    source_id=work_item.id,
-                    destination_id=destination_id,
-                )
+                for attachment in work_item.attachments:
+                    dest_client.add_attachment(dest_project, destination_id, attachment)
 
-        items.append(work_item.id)
+                if dest_client.dry_run:
+                    status = "will be created"
+                else:
+                    state.mark_complete(
+                        ARTIFACT_TYPE, source_id=work_item.id, destination_id=destination_id
+                    )
+                    status = f"created -> {destination_id}"
+
+        items.append(f"{work_item.id} '{title}': {status}")
 
     return ReportSection(title="Work Items", items=items)
 

@@ -88,8 +88,9 @@ def test_run_migration_continues_past_persistent_type_failure(tmp_path):
     assert failures_section.items == ["repos: destination org unreachable"]
 
     assert state.is_complete("work_items", source_id="1")
+    destination_id = state.get_destination_id("work_items", source_id="1")
     work_items_section = next(s for s in report.sections if s.title == "Work Items")
-    assert work_items_section.items == ["1"]
+    assert work_items_section.items == [f"1 'Crash': created -> {destination_id}"]
 
 
 def test_run_migration_reports_users_from_project_permissions(tmp_path):

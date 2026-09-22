@@ -30,7 +30,7 @@ def test_migrate_work_items_creates_single_revision_work_item(tmp_path):
     assert dest_item.revisions == [{"Title": "Crash on save", "State": "New"}]
     assert dest_item.work_item_type == "Bug"
     assert state.is_complete("work_items", source_id="1")
-    assert "1" in section.items
+    assert f"1 'Crash on save': created -> {destination_id}" in section.items
 
 
 def test_migrate_work_items_replays_every_revision_in_order(tmp_path):
@@ -222,13 +222,14 @@ def test_migrate_work_items_rerun_makes_no_additional_mutating_calls(tmp_path):
         source, dest, "SourceProject", "DestProject", state, identity_map
     )
     calls_after_first_run = len(dest.mutation_log)
+    first_destination_id = state.get_destination_id("work_items", source_id="1")
 
     section = migrate_work_items(
         source, dest, "SourceProject", "DestProject", state, identity_map
     )
 
     assert len(dest.mutation_log) == calls_after_first_run
-    assert section.items == ["1"]
+    assert section.items == [f"1 'Crash': already migrated -> {first_destination_id}"]
 
 
 def test_migrate_work_items_resolves_identity_even_when_already_complete(tmp_path):
@@ -279,7 +280,7 @@ def test_migrate_work_items_recreates_item_deleted_from_destination(tmp_path):
     assert new_destination_id != first_destination_id
     dest_item = dest.get_work_item("DestProject", new_destination_id)
     assert dest_item.revisions == [{"Title": "Crash"}]
-    assert section.items == ["1"]
+    assert section.items == [f"1 'Crash': created -> {new_destination_id}"]
 
 
 def test_migrate_work_items_reuses_destination_item_with_matching_title(tmp_path):
@@ -305,7 +306,9 @@ def test_migrate_work_items_reuses_destination_item_with_matching_title(tmp_path
     assert state.get_destination_id("work_items", source_id="1") == "existing-wi"
     assert all(not record.executed for record in dest.mutation_log)
     assert len(dest._destination_work_items) == 1
-    assert section.items == ["1"]
+    assert section.items == [
+        "1 'Crash on save': matches existing destination item existing-wi, skipped"
+    ]
 
 
 def test_migrate_work_items_creates_when_no_title_match(tmp_path):
@@ -342,6 +345,6 @@ def test_migrate_work_items_dry_run_reports_without_mutating(tmp_path):
         source, dest, "SourceProject", "DestProject", state, identity_map
     )
 
-    assert section.items == ["1"]
+    assert section.items == ["1 'Crash': will be created"]
     assert state.is_complete("work_items", source_id="1") is False
     assert all(not record.executed for record in dest.mutation_log)

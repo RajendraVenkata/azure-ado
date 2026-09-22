@@ -1,3 +1,4 @@
+import html
 from dataclasses import dataclass, field
 
 
@@ -17,8 +18,10 @@ def render_report(data: ReportData) -> str:
     mode_label = "Dry Run" if data.dry_run else "Migration Run"
 
     sections_html = "\n".join(
-        f"<section><h2>{section.title}</h2>"
-        f"<ul>{''.join(f'<li>{item}</li>' for item in section.items)}</ul></section>"
+        f"<section><h2>{html.escape(section.title)}</h2>"
+        "<ul>"
+        f"{''.join(f'<li>{html.escape(item)}</li>' for item in section.items)}"
+        "</ul></section>"
         for section in data.sections
     )
 
