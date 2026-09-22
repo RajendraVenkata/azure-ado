@@ -372,6 +372,27 @@ class RealAdoClient(AdoClient):
         # attachments fetch per item just to confirm it's still there.
         return {str(work_item_id) for work_item_id in self._list_work_item_ids(project)}
 
+    def list_work_item_titles(self, project: str) -> dict[str, str]:
+        # A cheap Title -> id lookup (fetches only System.Title, batched 200
+        # ids at a time — the API's max per call) used to detect a work item
+        # that already exists in the destination under the same title
+        # without paying for a full revisions+relations+attachments fetch
+        # per item.
+        ids = self._list_work_item_ids(project)
+        titles: dict[str, str] = {}
+        for start in range(0, len(ids), 200):
+            batch = self._call(
+                self._wit_client.get_work_items,
+                ids[start : start + 200],
+                project=project,
+                fields=["System.Title"],
+            )
+            for work_item in batch or []:
+                title = (work_item.fields or {}).get("System.Title")
+                if title:
+                    titles[title] = str(work_item.id)
+        return titles
+
     def _list_work_item_ids(self, project: str) -> list[int]:
         # Azure DevOps caps WIQL results at 20000 rows per query (VS402337),
         # so projects above that size must be paged by System.Id. The

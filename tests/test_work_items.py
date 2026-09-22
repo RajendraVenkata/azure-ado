@@ -282,6 +282,52 @@ def test_migrate_work_items_recreates_item_deleted_from_destination(tmp_path):
     assert section.items == ["1"]
 
 
+def test_migrate_work_items_reuses_destination_item_with_matching_title(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_work_items(
+        "SourceProject",
+        [WorkItem(id="1", work_item_type="Bug", revisions=[{"Title": "Crash on save"}])],
+    )
+    # Already present in the destination under the same title, but not
+    # tracked by this tool (no state record) — e.g. created directly, or
+    # migrated in a prior run whose state.json wasn't persisted.
+    dest._destination_work_items["existing-wi"] = WorkItem(
+        id="existing-wi", work_item_type="Bug", revisions=[{"Title": "Crash on save"}]
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({})
+
+    section = migrate_work_items(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    assert state.get_destination_id("work_items", source_id="1") == "existing-wi"
+    assert all(not record.executed for record in dest.mutation_log)
+    assert len(dest._destination_work_items) == 1
+    assert section.items == ["1"]
+
+
+def test_migrate_work_items_creates_when_no_title_match(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_work_items(
+        "SourceProject",
+        [WorkItem(id="1", work_item_type="Bug", revisions=[{"Title": "Crash on save"}])],
+    )
+    dest._destination_work_items["existing-wi"] = WorkItem(
+        id="existing-wi", work_item_type="Bug", revisions=[{"Title": "Different title"}]
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({})
+
+    migrate_work_items(source, dest, "SourceProject", "DestProject", state, identity_map)
+
+    destination_id = state.get_destination_id("work_items", source_id="1")
+    assert destination_id != "existing-wi"
+    assert len(dest._destination_work_items) == 2
+
+
 def test_migrate_work_items_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

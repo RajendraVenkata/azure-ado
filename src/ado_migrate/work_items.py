@@ -16,6 +16,7 @@ def migrate_work_items(
 ) -> ReportSection:
     items = []
     existing_dest_work_item_ids = dest_client.list_work_item_ids(dest_project)
+    existing_dest_titles = dest_client.list_work_item_titles(dest_project)
 
     for work_item in source_client.list_work_items(source_project):
         resolved_revisions = [
@@ -27,6 +28,22 @@ def migrate_work_items(
         already_exists = (
             destination_id is not None and destination_id in existing_dest_work_item_ids
         )
+
+        if not already_exists:
+            title = resolved_revisions[-1].get("Title") if resolved_revisions else None
+            title_match_id = existing_dest_titles.get(title) if title else None
+
+            if title_match_id is not None:
+                # A work item with this title already exists in the
+                # destination — created outside this tool, or migrated in a
+                # prior run whose state wasn't persisted — so reuse it
+                # instead of creating a duplicate.
+                destination_id = title_match_id
+                already_exists = True
+                if not dest_client.dry_run:
+                    state.mark_complete(
+                        ARTIFACT_TYPE, source_id=work_item.id, destination_id=destination_id
+                    )
 
         if not already_exists:
             first_fields, *later_revisions = resolved_revisions
