@@ -145,6 +145,7 @@ class RealAdoClient(AdoClient):
         self._project_id_cache: dict[str, str] = {}
         self._test_plan_root_suite_cache: dict[str, str] = {}
         self._read_only_fields_cache: dict[str, set[str]] = {}
+        self._graph_user_cache: dict[str, Any] = {}
 
     def list_area_paths(self, project: str) -> list[str]:
         root = self._call(
@@ -944,8 +945,21 @@ class RealAdoClient(AdoClient):
                 subject, "descriptor", "?"
             )
             if kind == "user":
-                identity = getattr(subject, "principal_name", None) or getattr(
-                    subject, "mail_address", None
+                # lookup_subjects() deserializes every result as the generic
+                # GraphSubject base type (no principal_name/mail_address —
+                # those only exist on the GraphUser subclass, and this SDK
+                # doesn't polymorphically upgrade to it), so those fields
+                # are never populated here regardless of the real subject.
+                # get_user() is correctly typed as GraphUser and returns
+                # them for real; cached since the same person can appear
+                # via multiple groups or nested-group paths.
+                if subject.descriptor not in self._graph_user_cache:
+                    self._graph_user_cache[subject.descriptor] = self._call(
+                        self._graph_client.get_user, subject.descriptor
+                    )
+                full_user = self._graph_user_cache[subject.descriptor]
+                identity = full_user and (
+                    full_user.principal_name or full_user.mail_address
                 )
                 if identity:
                     logger.info(
