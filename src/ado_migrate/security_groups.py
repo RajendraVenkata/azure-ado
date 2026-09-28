@@ -1,7 +1,11 @@
+import logging
+
 from ado_migrate.client import AdoClient, DEFAULT_SECURITY_GROUP_NAMES, SecurityGroup
 from ado_migrate.identity import UNMAPPED_PLACEHOLDER, IdentityMap
 from ado_migrate.report import ReportSection
 from ado_migrate.state import StateStore
+
+logger = logging.getLogger(__name__)
 
 ARTIFACT_TYPE = "security_groups"
 
@@ -28,6 +32,11 @@ def migrate_security_groups(
                 items.append(
                     f"{group.name}: {identity} has no destination mapping, skipped"
                 )
+                logger.warning(
+                    "'%s' has no destination mapping; not assigned to '%s'",
+                    identity,
+                    group.name,
+                )
             else:
                 resolved_members.append(resolved)
 
@@ -47,6 +56,13 @@ def migrate_security_groups(
             )
 
         items.append(f"{group.name} ({member_count} members)")
+        logger.info(
+            "Security group '%s': %d of %d resolved member(s) assigned in %s",
+            group.name,
+            member_count,
+            len(resolved_members),
+            dest_project,
+        )
 
     return ReportSection(title="Security Groups", items=items)
 
@@ -67,13 +83,20 @@ def _sync_default_group(
     if dest_group is None:
         if resolved_members:
             items.append(f"{group.name}: not found in the destination project, skipped")
+            logger.warning(
+                "Built-in group '%s' not found in destination project '%s'; "
+                "%d resolved member(s) not assigned",
+                group.name,
+                dest_project,
+                len(resolved_members),
+            )
         return 0
 
     to_add = [m for m in resolved_members if m not in dest_group.member_identities]
     if not to_add or dest_client.dry_run:
         return len(resolved_members)
 
-    added = dest_client.add_group_members(dest_project, dest_group.id, to_add)
+    added = dest_client.add_group_members(dest_project, dest_group.id, group.name, to_add)
     for identity in to_add:
         if identity not in added:
             items.append(

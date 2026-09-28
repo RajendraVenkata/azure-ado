@@ -936,6 +936,12 @@ class RealAdoClient(AdoClient):
                         self._graph_client.add_membership, member_descriptor, group_descriptor
                     )
                     added_members.append(identity)
+                    logger.info(
+                        "Assigned '%s' to security group '%s' in project '%s'",
+                        identity,
+                        name,
+                        project,
+                    )
                 else:
                     logger.warning(
                         "Could not resolve identity '%s' in the destination "
@@ -952,7 +958,7 @@ class RealAdoClient(AdoClient):
         return self._mutate(f"create security group '{name}' in {project}", do_create)
 
     def add_group_members(
-        self, project: str, group_id: str, member_identities: list[str]
+        self, project: str, group_id: str, group_name: str, member_identities: list[str]
     ) -> list[str]:
         """Add member_identities (already-resolved destination identities)
         to an existing destination group, identified by the descriptor
@@ -969,17 +975,23 @@ class RealAdoClient(AdoClient):
                 if member_descriptor:
                     self._call(self._graph_client.add_membership, member_descriptor, group_id)
                     added_members.append(identity)
+                    logger.info(
+                        "Assigned '%s' to security group '%s' in project '%s'",
+                        identity,
+                        group_name,
+                        project,
+                    )
                 else:
                     logger.warning(
                         "Could not resolve identity '%s' in the destination "
                         "organization; not added to group '%s'",
                         identity,
-                        group_id,
+                        group_name,
                     )
             return added_members
 
         return self._mutate(
-            f"add {len(member_identities)} member(s) to group '{group_id}' in {project}",
+            f"add {len(member_identities)} member(s) to group '{group_name}' in {project}",
             do_add,
         )
 

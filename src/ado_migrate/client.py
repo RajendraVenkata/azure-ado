@@ -510,7 +510,7 @@ class InMemoryFakeAdoClient(AdoClient):
         return self._mutate(f"create security group '{name}' in {project}", do_create)
 
     def add_group_members(
-        self, project: str, group_id: str, member_identities: list[str]
+        self, project: str, group_id: str, group_name: str, member_identities: list[str]
     ) -> list[str]:
         def do_add() -> list[str]:
             added_members = [
@@ -527,7 +527,7 @@ class InMemoryFakeAdoClient(AdoClient):
             return added_members
 
         return self._mutate(
-            f"add {len(member_identities)} member(s) to group '{group_id}' in {project}",
+            f"add {len(member_identities)} member(s) to group '{group_name}' in {project}",
             do_add,
         )
 
