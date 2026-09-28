@@ -1,6 +1,6 @@
 import yaml
 
-from ado_migrate.client import InMemoryFakeAdoClient
+from ado_migrate.client import InMemoryFakeAdoClient, SecurityGroup
 from ado_migrate.identity_map_gen import collect_identities, parse_args, render_identity_map
 
 
@@ -48,6 +48,29 @@ def test_collect_identities_returns_empty_list_when_no_project_users():
     client = InMemoryFakeAdoClient(dry_run=False)
 
     assert collect_identities(client, "SourceProject") == []
+
+
+def test_collect_identities_includes_security_group_members_not_in_project_users():
+    """A service/admin account added directly to a group like Project
+    Administrators can be a member without ever showing up on the
+    Permissions > Users page — collect_identities must still pick it up,
+    or it silently never makes it into identity.yaml."""
+    client = InMemoryFakeAdoClient(dry_run=False)
+    client.seed_project_users("SourceProject", ["alice@source.com"])
+    client.seed_security_groups(
+        "SourceProject",
+        [
+            SecurityGroup(
+                id="g-admins",
+                name="Project Administrators",
+                member_identities=["alice@source.com", "adm-service1@source.com"],
+            )
+        ],
+    )
+
+    identities = collect_identities(client, "SourceProject")
+
+    assert identities == ["adm-service1@source.com", "alice@source.com"]
 
 
 def test_render_identity_map_defaults_each_identity_to_itself():

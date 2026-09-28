@@ -1,7 +1,15 @@
 """generate-identity-map: list the identities with project-level permissions
-in a source project (Project Settings > Permissions > Users) and emit a
-starter identity.yaml, each identity defaulted to itself as the destination
-value.
+in a source project (Project Settings > Permissions > Users), plus every
+identity reachable through any of the project's security groups (built-in
+and custom, including through nested groups), and emit a starter
+identity.yaml, each identity defaulted to itself as the destination value.
+
+The two sources don't always agree: an account added directly to a group
+like Project Administrators (a service/admin account, say) can be a member
+without ever showing up on the Permissions > Users page, so relying on
+that page alone silently drops it from identity.yaml — and migrate later
+reports it "has no destination mapping" with no way to know it was never a
+choice, just a gap in what got collected. Union both sources instead.
 
 Network calls (`main`) are deliberately excluded from the automated test
 suite, consistent with this codebase's convention for real-client entry
@@ -40,7 +48,10 @@ def parse_args(argv: list[str]) -> Namespace:
 
 
 def collect_identities(client: AdoClient, project: str) -> list[str]:
-    return sorted(set(client.list_project_users(project)))
+    identities = set(client.list_project_users(project))
+    for group in client.list_security_groups(project):
+        identities.update(group.member_identities)
+    return sorted(identities)
 
 
 def render_identity_map(identities: list[str]) -> str:

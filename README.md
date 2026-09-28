@@ -86,7 +86,7 @@ Any source identity not covered by the map is flagged in the report and replaced
 
 ### Generate a starter identity.yaml
 
-`generate-identity-map` connects to the source project and lists the identities with project-level permissions there — the same set shown under **Project Settings > Permissions > Users** in the Azure DevOps UI — then writes an `identity.yaml` with each one defaulted to itself. The file is valid to run immediately; you only need to edit the right-hand side of the entries that actually differ in the destination org.
+`generate-identity-map` connects to the source project and lists every identity it can find there: the ones with project-level permissions (the same set shown under **Project Settings > Permissions > Users** in the Azure DevOps UI) plus everyone reachable through any of the project's security groups, built-in and custom, including through nested groups — an account added directly to a group like Project Administrators can be a member without ever showing up on the Permissions > Users page, so relying on that page alone would silently miss it. It then writes an `identity.yaml` with each one defaulted to itself. The file is valid to run immediately; you only need to edit the right-hand side of the entries that actually differ in the destination org.
 
 macOS/Linux:
 
