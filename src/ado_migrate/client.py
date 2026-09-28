@@ -79,6 +79,22 @@ class SecurityGroup:
     member_identities: list[str] = field(default_factory=list)
 
 
+# Built-in groups every Azure DevOps project already has by default; these
+# always exist in the destination project already, so migrating them means
+# adding members to the existing group rather than creating a new one.
+DEFAULT_SECURITY_GROUP_NAMES = {
+    "Project Administrators",
+    "Contributors",
+    "Readers",
+    "Build Administrators",
+    "Release Administrators",
+    "Endpoint Administrators",
+    "Endpoint Creators",
+    "Project Valid Users",
+    "Project-Scoped Users",
+}
+
+
 @dataclass
 class TestSuite:
     id: str
@@ -166,7 +182,6 @@ class InMemoryFakeAdoClient(AdoClient):
         self._artifact_feeds: dict[str, list[ArtifactFeed]] = {}
         self._used_extensions: dict[str, list[Extension]] = {}
         self._project_users: dict[str, list[str]] = {}
-        self._project_members: dict[str, list[str]] = {}
         self._teams: dict[str, list[Team]] = {}
         self._next_team_id = 1
         self._team_iterations: dict[tuple[str, str], list[str]] = {}
@@ -228,17 +243,6 @@ class InMemoryFakeAdoClient(AdoClient):
 
     def list_project_users(self, project: str) -> list[str]:
         return list(self._project_users.get(project, []))
-
-    def add_project_member(self, project: str, identity: str) -> None:
-        def do_add() -> None:
-            bucket = self._project_members.setdefault(project, [])
-            if identity not in bucket:
-                bucket.append(identity)
-
-        self._mutate(f"add project member '{identity}' to {project}", do_add)
-
-    def list_project_members(self, project: str) -> list[str]:
-        return list(self._project_members.get(project, []))
 
     def seed_work_items(self, project: str, work_items: list[WorkItem]) -> None:
         self._work_items.setdefault(project, []).extend(work_items)
@@ -504,6 +508,28 @@ class InMemoryFakeAdoClient(AdoClient):
             return group
 
         return self._mutate(f"create security group '{name}' in {project}", do_create)
+
+    def add_group_members(
+        self, project: str, group_id: str, member_identities: list[str]
+    ) -> list[str]:
+        def do_add() -> list[str]:
+            added_members = [
+                identity
+                for identity in member_identities
+                if identity not in self.unresolvable_identities
+            ]
+            group = next(
+                g for g in self._security_groups.get(project, []) if g.id == group_id
+            )
+            for identity in added_members:
+                if identity not in group.member_identities:
+                    group.member_identities.append(identity)
+            return added_members
+
+        return self._mutate(
+            f"add {len(member_identities)} member(s) to group '{group_id}' in {project}",
+            do_add,
+        )
 
     def seed_release_pipelines(
         self, project: str, pipelines: list[ReleasePipeline]

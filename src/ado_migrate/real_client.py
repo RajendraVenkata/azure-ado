@@ -119,20 +119,6 @@ _AUTO_DERIVED_AUTH_PARAMETERS = {
     "workloadidentityfederationsubject",
 }
 
-# Built-in groups every Azure DevOps project already has by default; these
-# are never migrated since they already exist in the destination project.
-_DEFAULT_SECURITY_GROUP_NAMES = {
-    "Project Administrators",
-    "Contributors",
-    "Readers",
-    "Build Administrators",
-    "Release Administrators",
-    "Endpoint Administrators",
-    "Endpoint Creators",
-    "Project Valid Users",
-    "Project-Scoped Users",
-}
-
 
 class RealAdoClient(AdoClient):
     def __init__(self, organization_url: str, pat: str, dry_run: bool = False):
@@ -539,43 +525,6 @@ class RealAdoClient(AdoClient):
 
         return identities
 
-    def add_project_member(self, project: str, identity: str) -> None:
-        def do_add() -> None:
-            project_id = self._get_project_id(project)
-            project_descriptor = self._call(
-                self._graph_client.get_descriptor, project_id
-            ).value
-            groups = self._call(
-                self._graph_client.list_groups, scope_descriptor=project_descriptor
-            )
-            contributors = next(
-                (g for g in (groups.graph_groups or []) if g.display_name == "Contributors"),
-                None,
-            )
-            if contributors is None:
-                raise ValueError(f"'Contributors' group not found in project '{project}'")
-
-            member_descriptor = self._resolve_user_descriptor(identity)
-            if member_descriptor is None:
-                raise ValueError(
-                    f"Could not resolve identity '{identity}' in the destination organization"
-                )
-
-            self._call(
-                self._graph_client.add_membership, member_descriptor, contributors.descriptor
-            )
-
-        self._mutate(f"add project member '{identity}' to {project}", do_add)
-
-    def list_project_members(self, project: str) -> list[str]:
-        """Current members of `project` — used by migrate_users() to check
-        which identities are already present in the destination before
-        calling add_project_member(). Same underlying query as
-        list_project_users(); the two are split so a caller can query a
-        source project's permission list and a destination project's
-        membership independently."""
-        return self.list_project_users(project)
-
     def list_wikis(self, project: str) -> list[Repo]:
         wikis = self._call(self._wiki_client.get_all_wikis, project=project)
         return [Repo(id=w.id, name=w.name, clone_url=w.remote_url) for w in (wikis or [])]
@@ -911,15 +860,17 @@ class RealAdoClient(AdoClient):
         return self._test_plan_root_suite_cache[plan_id]
 
     def list_security_groups(self, project: str) -> list[SecurityGroup]:
+        """All groups in the project's scope, built-in (Contributors,
+        Readers, Project Administrators, ...) and custom alike, each with
+        its direct membership. migrate_security_groups() decides what to do
+        with a built-in group by name (DEFAULT_SECURITY_GROUP_NAMES) — add
+        members to the existing group rather than create a new one."""
         project_id = self._get_project_id(project)
         project_descriptor = self._call(self._graph_client.get_descriptor, project_id).value
         groups = self._call(self._graph_client.list_groups, scope_descriptor=project_descriptor)
 
         result = []
         for group in groups.graph_groups or []:
-            if group.display_name in _DEFAULT_SECURITY_GROUP_NAMES:
-                continue
-
             memberships = (
                 self._call(
                     self._graph_client.list_memberships, group.descriptor, direction="down"
@@ -999,6 +950,38 @@ class RealAdoClient(AdoClient):
             )
 
         return self._mutate(f"create security group '{name}' in {project}", do_create)
+
+    def add_group_members(
+        self, project: str, group_id: str, member_identities: list[str]
+    ) -> list[str]:
+        """Add member_identities (already-resolved destination identities)
+        to an existing destination group, identified by the descriptor
+        list_security_groups() returned as its `id`. Used for built-in
+        groups (Contributors, Readers, ...), which already exist in every
+        project and are never created. Returns only the members actually
+        added — an identity that can't be resolved in the destination
+        org's directory is skipped and logged, not silently assumed."""
+
+        def do_add() -> list[str]:
+            added_members = []
+            for identity in member_identities:
+                member_descriptor = self._resolve_user_descriptor(identity)
+                if member_descriptor:
+                    self._call(self._graph_client.add_membership, member_descriptor, group_id)
+                    added_members.append(identity)
+                else:
+                    logger.warning(
+                        "Could not resolve identity '%s' in the destination "
+                        "organization; not added to group '%s'",
+                        identity,
+                        group_id,
+                    )
+            return added_members
+
+        return self._mutate(
+            f"add {len(member_identities)} member(s) to group '{group_id}' in {project}",
+            do_add,
+        )
 
     def _resolve_user_descriptor(self, principal_name: str) -> Optional[str]:
         matches = self._call(
