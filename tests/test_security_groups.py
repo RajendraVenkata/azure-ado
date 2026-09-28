@@ -111,6 +111,46 @@ def test_migrate_security_groups_recreates_group_deleted_from_destination(tmp_pa
     assert section.items == ["Release Managers (0 members)"]
 
 
+def test_migrate_security_groups_reports_members_the_destination_could_not_resolve(
+    tmp_path,
+):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_security_groups(
+        "SourceProject",
+        [
+            SecurityGroup(
+                id="sg-1",
+                name="Release Managers",
+                member_identities=["source.user@x.com", "source.other@x.com"],
+            )
+        ],
+    )
+    # dest.user@y.com resolves through the identity map but doesn't exist in
+    # the destination org's directory yet, so the destination API silently
+    # drops it when creating the group.
+    dest.unresolvable_identities = {"dest.user@y.com"}
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap(
+        {
+            "source.user@x.com": "dest.user@y.com",
+            "source.other@x.com": "dest.other@y.com",
+        }
+    )
+
+    section = migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    dest_groups = dest.list_security_groups("DestProject")
+    assert dest_groups[0].member_identities == ["dest.other@y.com"]
+    assert section.items == [
+        "Release Managers: dest.user@y.com could not be added in the "
+        "destination organization (identity not found), skipped",
+        "Release Managers (1 members)",
+    ]
+
+
 def test_migrate_security_groups_dry_run_reports_without_mutating(tmp_path):
     source = InMemoryFakeAdoClient(dry_run=False)
     dest = InMemoryFakeAdoClient(dry_run=True)

@@ -157,6 +157,10 @@ class InMemoryFakeAdoClient(AdoClient):
         self._next_test_suite_id = 1
         self._security_groups: dict[str, list[SecurityGroup]] = {}
         self._next_security_group_id = 1
+        # Destination identities create_security_group() should simulate
+        # being unable to resolve in the destination org's directory,
+        # mirroring RealAdoClient's silent-skip behavior for testing.
+        self.unresolvable_identities: set[str] = set()
         self._release_pipelines: dict[str, list[ReleasePipeline]] = {}
         self._dashboards: dict[str, list[Dashboard]] = {}
         self._artifact_feeds: dict[str, list[ArtifactFeed]] = {}
@@ -486,10 +490,15 @@ class InMemoryFakeAdoClient(AdoClient):
         def do_create() -> SecurityGroup:
             destination_id = f"sg-{self._next_security_group_id}"
             self._next_security_group_id += 1
+            added_members = [
+                identity
+                for identity in member_identities
+                if identity not in self.unresolvable_identities
+            ]
             group = SecurityGroup(
                 id=destination_id,
                 name=name,
-                member_identities=list(member_identities),
+                member_identities=added_members,
             )
             self._security_groups.setdefault(project, []).append(group)
             return group

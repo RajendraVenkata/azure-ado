@@ -9,6 +9,7 @@ Azure DevOps organization.
 """
 
 import io
+import logging
 import re
 from datetime import date, datetime
 from typing import Any, Optional
@@ -104,6 +105,8 @@ _EXTENSION_MANAGEMENT_CLIENT_PATH = (
     "azure.devops.v7_1.extension_management.extension_management_client."
     "ExtensionManagementClient"
 )
+logger = logging.getLogger(__name__)
+
 _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _STATUS_CODE_IN_MESSAGE = re.compile(r"returned a (\d+) status code")
 
@@ -974,16 +977,25 @@ class RealAdoClient(AdoClient):
                 json_body={"displayName": name},
             )
             group_descriptor = created["descriptor"]
+            added_members = []
             for identity in member_identities:
                 member_descriptor = self._resolve_user_descriptor(identity)
                 if member_descriptor:
                     self._call(
                         self._graph_client.add_membership, member_descriptor, group_descriptor
                     )
+                    added_members.append(identity)
+                else:
+                    logger.warning(
+                        "Could not resolve identity '%s' in the destination "
+                        "organization; not added to group '%s'",
+                        identity,
+                        name,
+                    )
             return SecurityGroup(
                 id=group_descriptor,
                 name=created["displayName"],
-                member_identities=list(member_identities),
+                member_identities=added_members,
             )
 
         return self._mutate(f"create security group '{name}' in {project}", do_create)

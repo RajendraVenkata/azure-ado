@@ -32,6 +32,7 @@ def migrate_security_groups(
 
         destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=group.id)
         already_exists = destination_id is not None and destination_id in existing_dest_group_ids
+        added_member_count = len(resolved_members)
 
         if not already_exists:
             destination_group = dest_client.create_security_group(
@@ -45,6 +46,20 @@ def migrate_security_groups(
                     destination_id=destination_group.id,
                 )
 
-        items.append(f"{group.name} ({len(resolved_members)} members)")
+                # create_security_group() only returns the members it
+                # actually confirmed adding — a resolved destination
+                # identity can still fail to add if it doesn't exist in the
+                # destination org's directory. Surface that gap instead of
+                # reporting a member count nothing verified.
+                added_members = destination_group.member_identities
+                added_member_count = len(added_members)
+                for identity in resolved_members:
+                    if identity not in added_members:
+                        items.append(
+                            f"{group.name}: {identity} could not be added in the "
+                            "destination organization (identity not found), skipped"
+                        )
+
+        items.append(f"{group.name} ({added_member_count} members)")
 
     return ReportSection(title="Security Groups", items=items)
