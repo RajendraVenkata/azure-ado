@@ -862,44 +862,16 @@ class RealAdoClient(AdoClient):
     def list_security_groups(self, project: str) -> list[SecurityGroup]:
         """All groups in the project's scope, built-in (Contributors,
         Readers, Project Administrators, ...) and custom alike, each with
-        its direct membership. migrate_security_groups() decides what to do
-        with a built-in group by name (DEFAULT_SECURITY_GROUP_NAMES) — add
-        members to the existing group rather than create a new one."""
+        its membership. migrate_security_groups() decides what to do with a
+        built-in group by name (DEFAULT_SECURITY_GROUP_NAMES) — add members
+        to the existing group rather than create a new one."""
         project_id = self._get_project_id(project)
         project_descriptor = self._call(self._graph_client.get_descriptor, project_id).value
         groups = self._call(self._graph_client.list_groups, scope_descriptor=project_descriptor)
 
         result = []
         for group in groups.graph_groups or []:
-            memberships = (
-                self._call(
-                    self._graph_client.list_memberships, group.descriptor, direction="down"
-                )
-                or []
-            )
-            member_descriptors = [m.member_descriptor for m in memberships]
-            member_identities = []
-            if member_descriptors:
-                subjects = self._call(
-                    self._graph_client.lookup_subjects,
-                    GraphSubjectLookup(
-                        lookup_keys=[
-                            GraphSubjectLookupKey(descriptor=d) for d in member_descriptors
-                        ]
-                    ),
-                )
-                for subject in (subjects or {}).values():
-                    # Nested-group members are skipped; only direct user
-                    # members are migrated, consistent with
-                    # list_project_users().
-                    if getattr(subject, "subject_kind", None) != "user":
-                        continue
-                    identity = getattr(subject, "principal_name", None) or getattr(
-                        subject, "mail_address", None
-                    )
-                    if identity:
-                        member_identities.append(identity)
-
+            member_identities = self._collect_group_member_identities(group.descriptor)
             result.append(
                 SecurityGroup(
                     id=group.descriptor,
@@ -908,6 +880,53 @@ class RealAdoClient(AdoClient):
                 )
             )
         return result
+
+    def _collect_group_member_identities(self, group_descriptor: str) -> list[str]:
+        """A group's user members, expanded recursively through any nested
+        group. list_memberships() only returns *direct* members, and in
+        most real orgs a project group's members are themselves Azure
+        AD/Entra security groups rather than individual users added
+        directly — so a shallow, single-level walk finds nobody. Expanding
+        nested groups (with a visited set to guard against a cycle) is what
+        actually reaches the real users."""
+        identities: list[str] = []
+        seen_groups: set[str] = set()
+        self._expand_group_members(group_descriptor, identities, seen_groups)
+        return list(dict.fromkeys(identities))
+
+    def _expand_group_members(
+        self, group_descriptor: str, identities: list[str], seen_groups: set[str]
+    ) -> None:
+        if group_descriptor in seen_groups:
+            return
+        seen_groups.add(group_descriptor)
+
+        memberships = (
+            self._call(
+                self._graph_client.list_memberships, group_descriptor, direction="down"
+            )
+            or []
+        )
+        member_descriptors = [m.member_descriptor for m in memberships]
+        if not member_descriptors:
+            return
+
+        subjects = self._call(
+            self._graph_client.lookup_subjects,
+            GraphSubjectLookup(
+                lookup_keys=[GraphSubjectLookupKey(descriptor=d) for d in member_descriptors]
+            ),
+        )
+        for subject in (subjects or {}).values():
+            kind = getattr(subject, "subject_kind", None)
+            if kind == "user":
+                identity = getattr(subject, "principal_name", None) or getattr(
+                    subject, "mail_address", None
+                )
+                if identity:
+                    identities.append(identity)
+            elif kind == "group":
+                self._expand_group_members(subject.descriptor, identities, seen_groups)
 
     def create_security_group(
         self, project: str, name: str, member_identities: list[str]
