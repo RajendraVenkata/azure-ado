@@ -523,6 +523,9 @@ class RealAdoClient(AdoClient):
             if not continuation_token:
                 break
 
+        logger.info(
+            "Project '%s': found %d project-level user(s)", project, len(identities)
+        )
         return identities
 
     def list_wikis(self, project: str) -> list[Repo]:

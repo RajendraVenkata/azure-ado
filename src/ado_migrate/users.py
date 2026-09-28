@@ -1,6 +1,10 @@
+import logging
+
 from ado_migrate.client import AdoClient
-from ado_migrate.identity import IdentityMap, format_resolution
+from ado_migrate.identity import UNMAPPED_PLACEHOLDER, IdentityMap, format_resolution
 from ado_migrate.report import ReportSection
+
+logger = logging.getLogger(__name__)
 
 
 def migrate_users(
@@ -17,8 +21,26 @@ def migrate_users(
     rather than every project user being dumped into a single destination
     group regardless of their source role."""
     identities = sorted(set(source_client.list_project_users(source_project)))
-    items = [
-        format_resolution(identity, identity_map.resolve(identity))
-        for identity in identities
-    ]
+    logger.info(
+        "Resolving %d distinct project user(s) from '%s' through the identity map",
+        len(identities),
+        source_project,
+    )
+
+    items = []
+    unmapped_count = 0
+    for identity in identities:
+        destination_identity = identity_map.resolve(identity)
+        items.append(format_resolution(identity, destination_identity))
+        if destination_identity == UNMAPPED_PLACEHOLDER:
+            unmapped_count += 1
+            logger.warning("'%s' has no destination mapping in identity.yaml", identity)
+        else:
+            logger.info("'%s' resolves to '%s'", identity, destination_identity)
+
+    if unmapped_count:
+        logger.warning(
+            "%d of %d project user(s) have no destination mapping", unmapped_count, len(identities)
+        )
+
     return ReportSection(title="Users", items=items)
