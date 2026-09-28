@@ -871,7 +871,9 @@ class RealAdoClient(AdoClient):
 
         result = []
         for group in groups.graph_groups or []:
-            member_identities = self._collect_group_member_identities(group.descriptor)
+            member_identities = self._collect_group_member_identities(
+                group.descriptor, group.display_name
+            )
             result.append(
                 SecurityGroup(
                     id=group.descriptor,
@@ -881,7 +883,9 @@ class RealAdoClient(AdoClient):
             )
         return result
 
-    def _collect_group_member_identities(self, group_descriptor: str) -> list[str]:
+    def _collect_group_member_identities(
+        self, group_descriptor: str, group_name: str
+    ) -> list[str]:
         """A group's user members, expanded recursively through any nested
         group. list_memberships() only returns *direct* members, and in
         most real orgs a project group's members are themselves Azure
@@ -891,11 +895,15 @@ class RealAdoClient(AdoClient):
         actually reaches the real users."""
         identities: list[str] = []
         seen_groups: set[str] = set()
-        self._expand_group_members(group_descriptor, identities, seen_groups)
+        self._expand_group_members(group_descriptor, group_name, identities, seen_groups)
         return list(dict.fromkeys(identities))
 
     def _expand_group_members(
-        self, group_descriptor: str, identities: list[str], seen_groups: set[str]
+        self,
+        group_descriptor: str,
+        group_name: str,
+        identities: list[str],
+        seen_groups: set[str],
     ) -> None:
         if group_descriptor in seen_groups:
             return
@@ -909,7 +917,10 @@ class RealAdoClient(AdoClient):
         )
         member_descriptors = [m.member_descriptor for m in memberships]
         logger.info(
-            "Group '%s': %d direct membership(s)", group_descriptor, len(member_descriptors)
+            "Group '%s' (%s): %d direct membership(s)",
+            group_name,
+            group_descriptor,
+            len(member_descriptors),
         )
         if not member_descriptors:
             return
@@ -926,23 +937,39 @@ class RealAdoClient(AdoClient):
             # case comes back on a subject), so compare case-insensitively
             # rather than assume lowercase.
             kind = (getattr(subject, "subject_kind", None) or "").lower()
+            subject_label = getattr(subject, "display_name", None) or getattr(
+                subject, "descriptor", "?"
+            )
             if kind == "user":
                 identity = getattr(subject, "principal_name", None) or getattr(
                     subject, "mail_address", None
                 )
                 if identity:
+                    logger.info(
+                        "Group '%s': found member '%s' (%s)", group_name, identity, subject_label
+                    )
                     identities.append(identity)
                 else:
                     logger.warning(
-                        "Group member '%s' has no principal_name or mail_address; skipped",
-                        getattr(subject, "descriptor", "?"),
+                        "Group '%s': member '%s' has no principal_name or mail_address; "
+                        "skipped",
+                        group_name,
+                        subject_label,
                     )
             elif kind == "group":
-                self._expand_group_members(subject.descriptor, identities, seen_groups)
+                logger.info(
+                    "Group '%s': member '%s' is a nested group, expanding",
+                    group_name,
+                    subject_label,
+                )
+                self._expand_group_members(
+                    subject.descriptor, subject_label, identities, seen_groups
+                )
             else:
                 logger.warning(
-                    "Group member '%s' has unrecognized subject_kind '%s'; skipped",
-                    getattr(subject, "descriptor", "?"),
+                    "Group '%s': member '%s' has unrecognized subject_kind '%s'; skipped",
+                    group_name,
+                    subject_label,
                     getattr(subject, "subject_kind", None),
                 )
 
