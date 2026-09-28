@@ -908,6 +908,9 @@ class RealAdoClient(AdoClient):
             or []
         )
         member_descriptors = [m.member_descriptor for m in memberships]
+        logger.info(
+            "Group '%s': %d direct membership(s)", group_descriptor, len(member_descriptors)
+        )
         if not member_descriptors:
             return
 
@@ -918,15 +921,30 @@ class RealAdoClient(AdoClient):
             ),
         )
         for subject in (subjects or {}).values():
-            kind = getattr(subject, "subject_kind", None)
+            # The Graph API is inconsistent about subjectKind casing across
+            # endpoints (e.g. "User"/"Group" as a query filter vs. whatever
+            # case comes back on a subject), so compare case-insensitively
+            # rather than assume lowercase.
+            kind = (getattr(subject, "subject_kind", None) or "").lower()
             if kind == "user":
                 identity = getattr(subject, "principal_name", None) or getattr(
                     subject, "mail_address", None
                 )
                 if identity:
                     identities.append(identity)
+                else:
+                    logger.warning(
+                        "Group member '%s' has no principal_name or mail_address; skipped",
+                        getattr(subject, "descriptor", "?"),
+                    )
             elif kind == "group":
                 self._expand_group_members(subject.descriptor, identities, seen_groups)
+            else:
+                logger.warning(
+                    "Group member '%s' has unrecognized subject_kind '%s'; skipped",
+                    getattr(subject, "descriptor", "?"),
+                    getattr(subject, "subject_kind", None),
+                )
 
     def create_security_group(
         self, project: str, name: str, member_identities: list[str]
