@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from ado_migrate.client import AdoClient, DEFAULT_SECURITY_GROUP_NAMES, SecurityGroup
 from ado_migrate.identity import UNMAPPED_PLACEHOLDER, IdentityMap
@@ -24,7 +25,10 @@ def migrate_security_groups(
     }
     existing_dest_group_ids = {g.id for g in existing_dest_groups.values()}
 
-    for group in source_client.list_security_groups(source_project):
+    source_groups = source_client.list_security_groups(source_project)
+    dest_group_id_by_source_name: dict[str, str] = {}
+
+    for group in source_groups:
         resolved_members = []
         for identity in group.member_identities:
             resolved = identity_map.resolve(identity)
@@ -44,8 +48,11 @@ def migrate_security_groups(
             member_count = _sync_default_group(
                 dest_client, dest_project, group, resolved_members, existing_dest_groups, items
             )
+            dest_group = existing_dest_groups.get(group.name)
+            if dest_group is not None:
+                dest_group_id_by_source_name[group.name] = dest_group.id
         else:
-            member_count = _sync_custom_group(
+            member_count, destination_id = _sync_custom_group(
                 dest_client,
                 dest_project,
                 group,
@@ -54,6 +61,8 @@ def migrate_security_groups(
                 existing_dest_group_ids,
                 items,
             )
+            if destination_id is not None:
+                dest_group_id_by_source_name[group.name] = destination_id
 
         items.append(f"{group.name} ({member_count} members)")
         logger.info(
@@ -63,6 +72,8 @@ def migrate_security_groups(
             len(resolved_members),
             dest_project,
         )
+
+    _link_nested_groups(dest_client, dest_project, source_groups, dest_group_id_by_source_name, items)
 
     return ReportSection(title="Security Groups", items=items)
 
@@ -114,19 +125,19 @@ def _sync_custom_group(
     state: StateStore,
     existing_dest_group_ids: set[str],
     items: list[str],
-) -> int:
+) -> tuple[int, Optional[str]]:
     destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=group.id)
     already_exists = destination_id is not None and destination_id in existing_dest_group_ids
 
     if already_exists:
-        return len(resolved_members)
+        return len(resolved_members), destination_id
 
     destination_group = dest_client.create_security_group(
         dest_project, group.name, resolved_members
     )
 
     if dest_client.dry_run:
-        return len(resolved_members)
+        return len(resolved_members), None
 
     state.mark_complete(
         ARTIFACT_TYPE,
@@ -145,4 +156,44 @@ def _sync_custom_group(
                 f"{group.name}: {identity} could not be added in the destination "
                 "organization (identity not found), skipped"
             )
-    return len(added_members)
+    return len(added_members), destination_group.id
+
+
+def _link_nested_groups(
+    dest_client: AdoClient,
+    dest_project: str,
+    source_groups: list[SecurityGroup],
+    dest_group_id_by_source_name: dict[str, str],
+    items: list[str],
+) -> None:
+    """Re-nest a group-to-group membership found in the source — an Azure
+    DevOps-native group directly nested inside another (e.g. a project
+    team's group nested inside Contributors) — onto the destination's own
+    recreated copies of both groups, instead of leaving it flattened into
+    individual users."""
+    for group in source_groups:
+        if not group.member_group_names:
+            continue
+
+        parent_dest_id = dest_group_id_by_source_name.get(group.name)
+        for child_name in group.member_group_names:
+            if dest_client.dry_run:
+                items.append(f"{group.name}: would nest '{child_name}' under it (dry run)")
+                continue
+
+            child_dest_id = dest_group_id_by_source_name.get(child_name)
+            if parent_dest_id is None or child_dest_id is None:
+                items.append(
+                    f"{group.name}: nested group '{child_name}' could not be linked "
+                    "in the destination, skipped"
+                )
+                continue
+
+            linked = dest_client.add_group_to_group(
+                dest_project, parent_dest_id, group.name, child_dest_id, child_name
+            )
+            if not linked:
+                items.append(
+                    f"{group.name}: nested group '{child_name}' could not be linked "
+                    "in the destination, skipped"
+                )

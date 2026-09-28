@@ -875,7 +875,7 @@ class RealAdoClient(AdoClient):
 
         result = []
         for group in groups.graph_groups or []:
-            member_identities = self._collect_group_member_identities(
+            member_identities, member_group_names = self._collect_group_members(
                 group.descriptor, group.display_name
             )
             result.append(
@@ -883,31 +883,45 @@ class RealAdoClient(AdoClient):
                     id=group.descriptor,
                     name=group.display_name,
                     member_identities=member_identities,
+                    member_group_names=member_group_names,
                 )
             )
         return result
 
-    def _collect_group_member_identities(
+    def _collect_group_members(
         self, group_descriptor: str, group_name: str
-    ) -> list[str]:
-        """A group's user members, expanded recursively through any nested
-        group. list_memberships() only returns *direct* members, and in
-        most real orgs a project group's members are themselves Azure
-        AD/Entra security groups rather than individual users added
-        directly — so a shallow, single-level walk finds nobody. Expanding
-        nested groups (with a visited set to guard against a cycle) is what
-        actually reaches the real users."""
+    ) -> tuple[list[str], list[str]]:
+        """A group's direct members, split into individual users (flattened
+        — with any *externally-managed* nested group, e.g. Azure AD/Entra,
+        expanded recursively too, since this tool has no way to recreate
+        or nest an external group) and directly-nested *Azure DevOps-native*
+        groups, recorded by name rather than expanded.
+
+        list_memberships() only returns direct members, and in most real
+        orgs a project group's members are themselves security groups
+        rather than individual users added directly — a shallow walk finds
+        nobody. A nested Azure DevOps-native group (e.g. a project team's
+        group) is also separately enumerated as its own top-level entry by
+        list_security_groups(), so migrate_security_groups() links the
+        destination's own recreated copy of it back in as a nested member
+        — preserving the group structure — instead of flattening its users
+        into this group directly."""
         identities: list[str] = []
+        group_names: list[str] = []
         seen_groups: set[str] = set()
-        self._expand_group_members(group_descriptor, group_name, identities, seen_groups)
-        return list(dict.fromkeys(identities))
+        self._expand_group_members(
+            group_descriptor, group_name, identities, group_names, seen_groups, top_level=True
+        )
+        return list(dict.fromkeys(identities)), list(dict.fromkeys(group_names))
 
     def _expand_group_members(
         self,
         group_descriptor: str,
         group_name: str,
         identities: list[str],
+        group_names: list[str],
         seen_groups: set[str],
+        top_level: bool,
     ) -> None:
         if group_descriptor in seen_groups:
             return
@@ -974,14 +988,32 @@ class RealAdoClient(AdoClient):
                         subject_label,
                     )
             elif kind == "group":
-                logger.info(
-                    "Group '%s': member '%s' is a nested group, expanding",
-                    group_name,
-                    subject_label,
-                )
-                self._expand_group_members(
-                    subject.descriptor, subject_label, identities, seen_groups
-                )
+                origin = (getattr(subject, "origin", None) or "").lower()
+                is_external = origin in {"aad", "ad", "msa"}
+                if top_level and not is_external:
+                    logger.info(
+                        "Group '%s': member '%s' is an Azure DevOps group; preserving "
+                        "as a nested group instead of flattening",
+                        group_name,
+                        subject_label,
+                    )
+                    group_names.append(subject_label)
+                else:
+                    logger.info(
+                        "Group '%s': member '%s' is an externally-managed group "
+                        "(origin='%s'); expanding and flattening its members",
+                        group_name,
+                        subject_label,
+                        origin or "?",
+                    )
+                    self._expand_group_members(
+                        subject.descriptor,
+                        subject_label,
+                        identities,
+                        group_names,
+                        seen_groups,
+                        top_level=False,
+                    )
             else:
                 logger.warning(
                     "Group '%s': member '%s' has unrecognized subject_kind '%s'; skipped",
@@ -1075,6 +1107,33 @@ class RealAdoClient(AdoClient):
             f"add {len(member_identities)} member(s) to group '{group_name}' in {project}",
             do_add,
         )
+
+    def add_group_to_group(
+        self,
+        project: str,
+        parent_group_id: str,
+        parent_name: str,
+        child_group_id: str,
+        child_name: str,
+    ) -> bool:
+        """Nest an already-existing destination group (child_group_id) as a
+        member of another destination group (parent_group_id). Used to
+        preserve a group-to-group nesting found in the source — an Azure
+        DevOps-native group directly nested inside another — instead of
+        flattening it into individual users, since both groups already
+        exist in the destination by the time this is called (both are
+        addressed by descriptor directly; no identity resolution needed)."""
+
+        def do_add() -> bool:
+            self._call(self._graph_client.add_membership, child_group_id, parent_group_id)
+            logger.info(
+                "Nested group '%s' under '%s' in project '%s'", child_name, parent_name, project
+            )
+            return True
+
+        return self._mutate(
+            f"nest group '{child_name}' under '{parent_name}' in {project}", do_add
+        ) or False
 
     def _resolve_user_descriptor(self, principal_name: str) -> Optional[str]:
         matches = self._call(

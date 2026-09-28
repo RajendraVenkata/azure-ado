@@ -289,3 +289,105 @@ def test_migrate_security_groups_dry_run_reports_without_mutating(tmp_path):
     assert section.items == ["Release Managers (1 members)"]
     assert dest.list_security_groups("DestProject") == []
     assert state.is_complete("security_groups", source_id="sg-1") is False
+
+
+def test_migrate_security_groups_links_nested_custom_group_under_default_group(tmp_path):
+    """A project team's group nested inside Contributors on the source
+    should end up nested inside the destination's Contributors too, not
+    flattened into individual users."""
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_security_groups(
+        "SourceProject",
+        [
+            SecurityGroup(
+                id="g-contrib",
+                name="Contributors",
+                member_identities=[],
+                member_group_names=["Team A"],
+            ),
+            SecurityGroup(id="g-team-a", name="Team A", member_identities=["alice@x.com"]),
+        ],
+    )
+    dest.seed_security_groups(
+        "DestProject",
+        [SecurityGroup(id="dest-contrib", name="Contributors", member_identities=[])],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({"alice@x.com": "alice@y.com"})
+
+    section = migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    dest_groups = {g.name: g for g in dest.list_security_groups("DestProject")}
+    assert dest_groups["Team A"].member_identities == ["alice@y.com"]
+    assert dest_groups["Contributors"].member_group_names == ["Team A"]
+    assert "Contributors: would nest 'Team A' under it (dry run)" not in section.items
+
+
+def test_migrate_security_groups_reports_unlinkable_nested_group(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_security_groups(
+        "SourceProject",
+        [
+            SecurityGroup(
+                id="g-contrib",
+                name="Contributors",
+                member_identities=[],
+                member_group_names=["Team A"],
+            ),
+        ],
+    )
+    # Source references a nested "Team A" group that was never itself
+    # returned by list_security_groups (e.g. scoped elsewhere) - nothing
+    # to link it to in the destination.
+    dest.seed_security_groups(
+        "DestProject",
+        [SecurityGroup(id="dest-contrib", name="Contributors", member_identities=[])],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({})
+
+    section = migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    assert (
+        "Contributors: nested group 'Team A' could not be linked in the destination, skipped"
+        in section.items
+    )
+    dest_groups = {g.name: g for g in dest.list_security_groups("DestProject")}
+    assert dest_groups["Contributors"].member_group_names == []
+
+
+def test_migrate_security_groups_dry_run_reports_nesting_without_mutating(tmp_path):
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=True)
+    source.seed_security_groups(
+        "SourceProject",
+        [
+            SecurityGroup(
+                id="g-contrib",
+                name="Contributors",
+                member_identities=[],
+                member_group_names=["Team A"],
+            ),
+            SecurityGroup(id="g-team-a", name="Team A", member_identities=["alice@x.com"]),
+        ],
+    )
+    dest.seed_security_groups(
+        "DestProject",
+        [SecurityGroup(id="dest-contrib", name="Contributors", member_identities=[])],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({"alice@x.com": "alice@y.com"})
+
+    section = migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    assert "Contributors: would nest 'Team A' under it (dry run)" in section.items
+    dest_groups = {g.name: g for g in dest.list_security_groups("DestProject")}
+    assert dest_groups["Contributors"].member_group_names == []

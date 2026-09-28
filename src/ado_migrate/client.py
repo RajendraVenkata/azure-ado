@@ -77,6 +77,13 @@ class SecurityGroup:
     id: str
     name: str
     member_identities: list[str] = field(default_factory=list)
+    # Names of Azure DevOps-native groups directly nested as members of
+    # this group (e.g. a project team's group nested inside Contributors).
+    # Kept separate from member_identities so migrate_security_groups() can
+    # link the destination's own recreated copy of that group back in as a
+    # nested member, preserving the group structure, instead of flattening
+    # its users into this group directly.
+    member_group_names: list[str] = field(default_factory=list)
 
 
 # Built-in groups every Azure DevOps project already has by default; these
@@ -529,6 +536,29 @@ class InMemoryFakeAdoClient(AdoClient):
         return self._mutate(
             f"add {len(member_identities)} member(s) to group '{group_name}' in {project}",
             do_add,
+        )
+
+    def add_group_to_group(
+        self,
+        project: str,
+        parent_group_id: str,
+        parent_name: str,
+        child_group_id: str,
+        child_name: str,
+    ) -> bool:
+        def do_add() -> bool:
+            parent = next(
+                (g for g in self._security_groups.get(project, []) if g.id == parent_group_id),
+                None,
+            )
+            if parent is None:
+                return False
+            if child_name not in parent.member_group_names:
+                parent.member_group_names.append(child_name)
+            return True
+
+        return self._mutate(
+            f"nest group '{child_name}' under '{parent_name}' in {project}", do_add
         )
 
     def seed_release_pipelines(
