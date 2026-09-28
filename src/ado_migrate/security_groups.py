@@ -23,7 +23,7 @@ def migrate_security_groups(
     existing_dest_groups = {
         g.name: g for g in dest_client.list_security_groups(dest_project)
     }
-    existing_dest_group_ids = {g.id for g in existing_dest_groups.values()}
+    existing_dest_groups_by_id = {g.id: g for g in existing_dest_groups.values()}
 
     source_groups = source_client.list_security_groups(source_project)
     dest_group_id_by_source_name: dict[str, str] = {}
@@ -58,7 +58,7 @@ def migrate_security_groups(
                 group,
                 resolved_members,
                 state,
-                existing_dest_group_ids,
+                existing_dest_groups_by_id,
                 items,
             )
             if destination_id is not None:
@@ -123,14 +123,30 @@ def _sync_custom_group(
     group: SecurityGroup,
     resolved_members: list[str],
     state: StateStore,
-    existing_dest_group_ids: set[str],
+    existing_dest_groups_by_id: dict[str, SecurityGroup],
     items: list[str],
 ) -> tuple[int, Optional[str]]:
     destination_id = state.get_destination_id(ARTIFACT_TYPE, source_id=group.id)
-    already_exists = destination_id is not None and destination_id in existing_dest_group_ids
+    dest_group = existing_dest_groups_by_id.get(destination_id) if destination_id else None
 
-    if already_exists:
-        return len(resolved_members), destination_id
+    if dest_group is not None:
+        # The group itself already exists — but a member removed from it
+        # in the destination since the last run (by hand, or by anything
+        # else) would otherwise never be reconciled: this only ran once,
+        # at creation time. Diff and re-add what's missing every run,
+        # same as the built-in-group path.
+        to_add = [m for m in resolved_members if m not in dest_group.member_identities]
+        if not to_add or dest_client.dry_run:
+            return len(resolved_members), destination_id
+
+        added = dest_client.add_group_members(dest_project, dest_group.id, group.name, to_add)
+        for identity in to_add:
+            if identity not in added:
+                items.append(
+                    f"{group.name}: {identity} could not be added in the destination "
+                    "organization (identity not found), skipped"
+                )
+        return len(resolved_members) - (len(to_add) - len(added)), destination_id
 
     destination_group = dest_client.create_security_group(
         dest_project, group.name, resolved_members

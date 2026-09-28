@@ -111,6 +111,39 @@ def test_migrate_security_groups_recreates_group_deleted_from_destination(tmp_pa
     assert section.items == ["Release Managers (0 members)"]
 
 
+def test_migrate_security_groups_re_adds_member_removed_from_existing_custom_group(
+    tmp_path,
+):
+    """A member removed by hand from an already-migrated custom group must
+    be re-added on the next run, not left missing forever just because the
+    group itself still exists."""
+    source = InMemoryFakeAdoClient(dry_run=False)
+    dest = InMemoryFakeAdoClient(dry_run=False)
+    source.seed_security_groups(
+        "SourceProject",
+        [
+            SecurityGroup(
+                id="sg-1",
+                name="Release Managers",
+                member_identities=["source.user@x.com"],
+            )
+        ],
+    )
+    state = StateStore(str(tmp_path / "state.json"))
+    identity_map = IdentityMap({"source.user@x.com": "dest.user@y.com"})
+
+    migrate_security_groups(source, dest, "SourceProject", "DestProject", state, identity_map)
+    dest_group = dest.list_security_groups("DestProject")[0]
+    dest_group.member_identities.remove("dest.user@y.com")
+
+    section = migrate_security_groups(
+        source, dest, "SourceProject", "DestProject", state, identity_map
+    )
+
+    assert dest.list_security_groups("DestProject")[0].member_identities == ["dest.user@y.com"]
+    assert section.items == ["Release Managers (1 members)"]
+
+
 def test_migrate_security_groups_reports_members_the_destination_could_not_resolve(
     tmp_path,
 ):
